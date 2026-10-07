@@ -237,7 +237,9 @@ export async function collectDtek(page, context, address, cookies, timeout) {
   await page.waitForFunction(() => Boolean(document.querySelector('.wrapper')), { timeout })
 
   const details = waitForDetails(page, timeout)
-  await fillAutocomplete(page, 'city', address.locality)
+  if (address.region !== 'kem') {
+    await fillAutocomplete(page, 'city', address.locality)
+  }
   await fillAutocomplete(page, 'street', address.street)
   await fillAutocomplete(page, 'house_num', address.building)
 

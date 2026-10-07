@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { Cache } from '../src/cache.js'
+import { Cache, retryOnce } from '../src/cache.js'
 
 test('Cache reuses fresh values and coalesces concurrent misses', async () => {
   let now = 1_000
@@ -61,4 +61,28 @@ test('one NERC cache key serves lookups for different commissioning dates', asyn
   assert.equal(second.status, 'hit')
   assert.deepEqual(first.value, second.value)
   assert.equal(loads, 1)
+})
+
+test('retryOnce retries one failure and returns the second result', async () => {
+  let attempts = 0
+  let retriedError
+
+  const result = await retryOnce(
+    async () => {
+      attempts += 1
+
+      if (attempts === 1) {
+        throw new Error('temporary failure')
+      }
+
+      return 'ok'
+    },
+    (error) => {
+      retriedError = error
+    },
+  )
+
+  assert.equal(result, 'ok')
+  assert.equal(attempts, 2)
+  assert.match(retriedError.message, /temporary failure/)
 })

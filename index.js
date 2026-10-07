@@ -2,7 +2,7 @@ import express from 'express'
 import puppeteer from 'puppeteer-core'
 
 import { basicAuth } from './src/auth.js'
-import { Cache } from './src/cache.js'
+import { Cache, retryOnce } from './src/cache.js'
 import { buildDtekStatus, buildIcs, collectDtek } from './src/dtek.js'
 import { checkNerc, dateToTimestamp, findGreenTariffByDate } from './src/nerc.js'
 
@@ -61,7 +61,7 @@ function setCacheHeaders(response, cached) {
 const config = {
   host: process.env.HOST || '0.0.0.0',
   port: integer('PORT', 8085),
-  navigationTimeout: integer('PUPPETEER_NAVIGATION_TIMEOUT_MS', 60_000),
+  navigationTimeout: integer('PUPPETEER_NAVIGATION_TIMEOUT_MS', 30_000),
   dtekCookies: loadDtekCookies(),
   username: required('BASIC_AUTH_USERNAME'),
   password: required('BASIC_AUTH_PASSWORD'),
@@ -95,6 +95,20 @@ async function withPage(callback) {
 const app = express()
 app.use(basicAuth(config.username, config.password))
 
+async function loadDtek(address) {
+  const collect = () => withPage((page, context) => collectDtek(
+    page,
+    context,
+    address,
+    config.dtekCookies[address.region] || [],
+    config.navigationTimeout,
+  ))
+
+  return retryOnce(collect, (error) => {
+    console.warn('DTEK crawl failed; retrying once in a fresh browser context', error)
+  })
+}
+
 async function getDtek(request) {
   const address = {
     region: query(request, 'region').toLowerCase(),
@@ -110,13 +124,7 @@ async function getDtek(request) {
   }
 
   const key = JSON.stringify(Object.values(address).map((value) => value.toLocaleLowerCase('uk-UA')))
-  const cached = await dtekCache.get(key, () => withPage((page, context) => collectDtek(
-    page,
-    context,
-    address,
-    config.dtekCookies[address.region] || [],
-    config.navigationTimeout,
-  )))
+  const cached = await dtekCache.get(key, () => loadDtek(address))
 
   if (cached.error) {
     console.error('DTEK failed; serving the last result', cached.error)

@@ -19,7 +19,7 @@ installations commissioned on different dates.
 
 ## Features
 
-- Gets the current DTEK schedule for a supported address passed in the request.
+- Gets the current DTEK schedule for addresses in the configured DTEK region.
 - Returns DTEK data as JSON and as an ICS calendar for Home Assistant.
 - Reports the next outage, next power restoration, current outage reason, and
   the reason's start and end times.
@@ -27,6 +27,8 @@ installations commissioned on different dates.
   Home Assistant automation uses them without sending a false midnight alert.
 - Finds the latest NERC green-tariff decree, reads all of its date ranges, and
   returns the price that applies to the requested commissioning date.
+- Retries a failed DTEK crawl once in a fresh browser context, then falls back
+  to the last cached result when one exists.
 - Caches DTEK data per address and the NERC tariff table once for all dates, so
   repeated requests do not open unnecessary browser sessions.
 - Includes Home Assistant examples for REST sensors, an outage calendar, and
@@ -136,10 +138,9 @@ contains stable hashes for the Kyiv calendar dates represented by `today` and
 }
 ```
 
-`nextOutage` and `nextConnectivity` are `null` when no matching transition
-exists. `shutdown` is an empty object when there is no current shutdown, which
-allows Home Assistant to read its nested attributes without logging a JSONPath
-warning. The ICS response is the read-only calendar feed.
+`nextOutage`, `nextConnectivity`, and `shutdown` are `null` when no matching
+transition or current shutdown exists. The ICS response is the read-only
+calendar feed.
 
 ### Home Assistant
 
@@ -206,7 +207,6 @@ current sensor value; an initial update without previous schedule attributes is
 ignored.
 
 ```yaml
-id: e9y_api_dtek_schedule_notifications
 alias: e9y API - DTEK schedule notifications
 mode: queued
 triggers:
@@ -253,6 +253,10 @@ variables:
     {% if tomorrow_changed | bool %}{% set days = days + ['tomorrow'] %}{% endif %}
     {{ days | join(' and ') }}
 actions:
+  - action: homeassistant.update_entity
+    data:
+      entity_id:
+        - calendar.dtek_dnipro_outages_1_1  # Replace per HA instance.
   - choose:
       - conditions:
           - condition: template
@@ -297,31 +301,29 @@ missing, `unknown`, or `unavailable` current sensor value; an initial update
 without a previous decree attribute is ignored.
 
 ```yaml
-automation:
-  - id: e9y_api_nerc_decree_notifications
-    alias: e9y API - NERC decree notifications
-    mode: queued
-    trigger:
-      - platform: state
-        entity_id: sensor.electricity_export_rate
-    condition:
-      - condition: template
-        value_template: >-
-          {{ trigger.from_state is not none
-             and has_value(trigger.entity_id)
-             and trigger.from_state.attributes.decree is mapping
-             and trigger.to_state.attributes.decree is mapping
-             and trigger.from_state.attributes.decree
-                 != trigger.to_state.attributes.decree }}
-    variables:
-      decree: "{{ trigger.to_state.attributes.decree }}"
-    action:
-      - action: notify.notify_all # Replace per HA instance.
-        data:
-          title: NERC decree changed
-          message: >-
-            Decree {{ decree.id }}, tariff {{ trigger.to_state.state }} UAH/kWh.
-            {{ decree.url }}
+alias: e9y API - NERC decree notifications
+mode: queued
+trigger:
+  - platform: state
+    entity_id: sensor.electricity_export_rate
+condition:
+  - condition: template
+    value_template: >-
+      {{ trigger.from_state is not none
+         and has_value(trigger.entity_id)
+         and trigger.from_state.attributes.decree is mapping
+         and trigger.to_state.attributes.decree is mapping
+         and trigger.from_state.attributes.decree
+             != trigger.to_state.attributes.decree }}
+variables:
+  decree: "{{ trigger.to_state.attributes.decree }}"
+action:
+  - action: notify.notify_all # Replace per HA instance.
+    data:
+      title: ⚡️ Export price changed!
+      message: >-
+        Decree {{ decree.id }}, tariff {{ trigger.to_state.state }} UAH/kWh.
+        {{ decree.url }}
 ```
 
 For the calendar, add the **Remote Calendar** integration in the HA UI. Use the

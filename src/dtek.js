@@ -135,7 +135,7 @@ function serializeShutdown(shutdown) {
         endsAt: shutdown.endsAt.toISOString(),
         reason: shutdown.reason,
       }
-    : {}
+    : null
 }
 
 export function buildDtekStatus(data, now = new Date()) {
@@ -187,10 +187,21 @@ async function fillAutocomplete(page, name, value) {
 }
 
 function waitForDetails(page, timeout) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('Timed out waiting for DTEK details')), timeout)
+  let timer
+  let handler
 
-    page.on('response', async function handler(response) {
+  const cancel = () => {
+    clearTimeout(timer)
+    page.off('response', handler)
+  }
+
+  const promise = new Promise((resolve, reject) => {
+    timer = setTimeout(() => {
+      cancel()
+      reject(new Error('Timed out waiting for DTEK details'))
+    }, timeout)
+
+    handler = async (response) => {
       if (!response.url().endsWith('/ua/ajax')) {
         return
       }
@@ -199,15 +210,18 @@ function waitForDetails(page, timeout) {
         const data = await response.json()
 
         if (data?.data && data.updateTimestamp !== undefined) {
-          clearTimeout(timer)
-          page.off('response', handler)
+          cancel()
           resolve(data)
         }
       } catch {
         // Not the final address-details response.
       }
-    })
+    }
+
+    page.on('response', handler)
   })
+
+  return { promise, cancel }
 }
 
 export async function collectDtek(page, context, address, cookies, timeout) {
@@ -236,14 +250,23 @@ export async function collectDtek(page, context, address, cookies, timeout) {
   await page.goto(`${baseUrl}/ua/shutdowns`, { waitUntil: 'domcontentloaded' })
   await page.waitForFunction(() => Boolean(document.querySelector('.wrapper')), { timeout })
 
-  const details = waitForDetails(page, timeout)
   if (address.region !== 'kem') {
     await fillAutocomplete(page, 'city', address.locality)
   }
   await fillAutocomplete(page, 'street', address.street)
-  await fillAutocomplete(page, 'house_num', address.building)
 
-  const response = await details
+  const details = waitForDetails(page, timeout)
+  let response
+
+  try {
+    [response] = await Promise.all([
+      details.promise,
+      fillAutocomplete(page, 'house_num', address.building),
+    ])
+  } finally {
+    details.cancel()
+  }
+
   const data = response.data[address.building] || Object.values(response.data)[0]
   const extracted = await page.evaluate(() => ({
     group: DisconSchedule.group,

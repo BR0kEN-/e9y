@@ -98,7 +98,7 @@ test('buildDtekStatus has a stable hash for an empty schedule', () => {
   assert.equal(first.fingerprint, second.fingerprint)
   assert.equal(first.today.hasOutages, false)
   assert.equal(first.tomorrow.hasOutages, false)
-  assert.deepEqual(first.shutdown, {})
+  assert.equal(first.shutdown, null)
 })
 
 test('buildDtekStatus canonicalizes reordered and overlapping events', () => {

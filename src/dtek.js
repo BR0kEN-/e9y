@@ -112,7 +112,7 @@ function scheduleDay(date, events) {
   ])
   const hash = createHash('sha256').update(JSON.stringify(intervals)).digest('hex')
 
-  return { date, hash, hasOutages: intervals.length > 0 }
+  return { date, hash, has_outages: intervals.length > 0 }
 }
 
 function nextTransitions(events, now) {
@@ -122,17 +122,17 @@ function nextTransitions(events, now) {
   const connectivity = ordered.find((event) => event.end.getTime() > timestamp)
 
   return {
-    nextOutage: outage?.start.toISOString() ?? null,
-    nextConnectivity: connectivity?.end.toISOString() ?? null,
+    next_outage: outage?.start.toISOString() ?? null,
+    next_connectivity: connectivity?.end.toISOString() ?? null,
   }
 }
 
 function serializeShutdown(shutdown) {
   return shutdown
     ? {
-        updatedAt: shutdown.updatedAt.toISOString(),
-        startedAt: shutdown.startedAt.toISOString(),
-        endsAt: shutdown.endsAt.toISOString(),
+        updated_at: shutdown.updatedAt.toISOString(),
+        started_at: shutdown.startedAt.toISOString(),
+        ends_at: shutdown.endsAt.toISOString(),
         reason: shutdown.reason,
       }
     : null
@@ -150,7 +150,7 @@ export function buildDtekStatus(data, now = new Date()) {
   return {
     fingerprint,
     group: data.group,
-    updatedAt: data.schedule.updatedAt.toISOString(),
+    updated_at: data.schedule.updatedAt.toISOString(),
     ...transitions,
     today,
     tomorrow,

@@ -35,8 +35,8 @@ test('parses every NERC tariff band and selects inclusive boundaries', () => {
   const tariffs = parseGreenTariffs(SOURCE)
 
   assert.deepEqual(tariffs, [
-    { startDate: '2020-01-01', endDate: '2024-12-31', tariff: 7.4321 },
-    { startDate: '2025-01-01', endDate: '2029-12-31', tariff: 6.5 },
+    { start_date: '2020-01-01', end_date: '2024-12-31', tariff: 7.4321 },
+    { start_date: '2025-01-01', end_date: '2029-12-31', tariff: 6.5 },
   ])
   assert.equal(findGreenTariffByDate(tariffs, Date.UTC(2024, 11, 31)), 7.4321)
   assert.equal(findGreenTariffByDate(tariffs, Date.UTC(2025, 0, 1)), 6.5)
@@ -57,13 +57,13 @@ test('parses all nine ranges from the current decree format', () => {
 
   assert.equal(tariffs.length, 9)
   assert.deepEqual(tariffs[0], {
-    startDate: '2013-04-01',
-    endDate: '2014-12-31',
+    start_date: '2013-04-01',
+    end_date: '2014-12-31',
     tariff: 18.4852,
   })
   assert.deepEqual(tariffs.at(-1), {
-    startDate: '2026-01-01',
-    endDate: '2029-12-31',
+    start_date: '2026-01-01',
+    end_date: '2029-12-31',
     tariff: 6.134,
   })
 })
@@ -102,13 +102,13 @@ test('finds the current decree through the NERC search API', async () => {
 
   assert.deepEqual(await checkNerc(page), {
     tariffs: [
-      { startDate: '2020-01-01', endDate: '2024-12-31', tariff: 7.4321 },
-      { startDate: '2025-01-01', endDate: '2029-12-31', tariff: 6.5 },
+      { start_date: '2020-01-01', end_date: '2024-12-31', tariff: 7.4321 },
+      { start_date: '2025-01-01', end_date: '2029-12-31', tariff: 6.5 },
     ],
     decree: {
       id: '2222',
       url: '/acts/green-tariff',
-      publishedAt: '2026-10-01T09:00:00+03:00',
+      published_at: '2026-10-01T09:00:00+03:00',
     },
   })
   assert.equal(opened.length, 1)

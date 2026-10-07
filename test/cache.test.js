@@ -51,7 +51,7 @@ test('one NERC cache key serves lookups for different commissioning dates', asyn
   const cache = new Cache(100)
   const loader = async () => {
     loads += 1
-    return [{ startDate: '2025-01-01' }, { startDate: '2026-01-01' }]
+    return [{ start_date: '2025-01-01' }, { start_date: '2026-01-01' }]
   }
 
   const first = await cache.get('current-decree', loader)

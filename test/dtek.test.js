@@ -76,8 +76,8 @@ test('buildDtekStatus hashes today and tomorrow independently', () => {
 
   assert.equal(status.today.date, '2026-03-29')
   assert.equal(status.tomorrow.date, '2026-03-30')
-  assert.equal(status.today.hasOutages, true)
-  assert.equal(status.tomorrow.hasOutages, true)
+  assert.equal(status.today.has_outages, true)
+  assert.equal(status.tomorrow.has_outages, true)
   assert.match(status.today.hash, /^[a-f0-9]{64}$/)
   assert.match(status.tomorrow.hash, /^[a-f0-9]{64}$/)
   assert.match(status.fingerprint, /^[a-f0-9]{64}$/)
@@ -96,8 +96,8 @@ test('buildDtekStatus has a stable hash for an empty schedule', () => {
   const second = buildDtekStatus(data, new Date('2026-01-01T20:00:00Z'))
 
   assert.equal(first.fingerprint, second.fingerprint)
-  assert.equal(first.today.hasOutages, false)
-  assert.equal(first.tomorrow.hasOutages, false)
+  assert.equal(first.today.has_outages, false)
+  assert.equal(first.tomorrow.has_outages, false)
   assert.equal(first.shutdown, null)
 })
 
@@ -146,20 +146,20 @@ test('buildDtekStatus exposes the next outage and connectivity transitions', () 
   }
 
   const before = buildDtekStatus(data, new Date('2026-01-01T07:00:00Z'))
-  assert.equal(before.nextOutage, '2026-01-01T08:00:00.000Z')
-  assert.equal(before.nextConnectivity, '2026-01-01T10:00:00.000Z')
+  assert.equal(before.next_outage, '2026-01-01T08:00:00.000Z')
+  assert.equal(before.next_connectivity, '2026-01-01T10:00:00.000Z')
 
   const during = buildDtekStatus(data, new Date('2026-01-01T09:00:00Z'))
-  assert.equal(during.nextOutage, '2026-01-01T12:00:00.000Z')
-  assert.equal(during.nextConnectivity, '2026-01-01T10:00:00.000Z')
+  assert.equal(during.next_outage, '2026-01-01T12:00:00.000Z')
+  assert.equal(during.next_connectivity, '2026-01-01T10:00:00.000Z')
 
   const between = buildDtekStatus(data, new Date('2026-01-01T11:00:00Z'))
-  assert.equal(between.nextOutage, '2026-01-01T12:00:00.000Z')
-  assert.equal(between.nextConnectivity, '2026-01-01T14:00:00.000Z')
+  assert.equal(between.next_outage, '2026-01-01T12:00:00.000Z')
+  assert.equal(between.next_connectivity, '2026-01-01T14:00:00.000Z')
 
   const after = buildDtekStatus(data, new Date('2026-01-01T15:00:00Z'))
-  assert.equal(after.nextOutage, null)
-  assert.equal(after.nextConnectivity, null)
+  assert.equal(after.next_outage, null)
+  assert.equal(after.next_connectivity, null)
 })
 
 test('buildDtekStatus serializes current shutdown details', () => {
@@ -180,9 +180,9 @@ test('buildDtekStatus serializes current shutdown details', () => {
   assert.deepEqual(
     buildDtekStatus(data, new Date('2026-01-01T09:00:00Z')).shutdown,
     {
-      updatedAt: '2026-01-01T07:00:00.000Z',
-      startedAt: '2026-01-01T08:00:00.000Z',
-      endsAt: '2026-01-01T10:00:00.000Z',
+      updated_at: '2026-01-01T07:00:00.000Z',
+      started_at: '2026-01-01T08:00:00.000Z',
+      ends_at: '2026-01-01T10:00:00.000Z',
       reason: 'Екстрені відключення',
     },
   )

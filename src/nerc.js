@@ -78,8 +78,8 @@ export function parseGreenTariffs(rawText) {
     }
 
     tariffs.push({
-      startDate: dateFromParts(d1, m1, y1),
-      endDate: dateFromParts(d2, m2, y2),
+      start_date: dateFromParts(d1, m1, y1),
+      end_date: dateFromParts(d2, m2, y2),
       tariff: Number((Number(price[1].replace(',', '.')) / 100).toFixed(4)),
     })
   }
@@ -88,22 +88,22 @@ export function parseGreenTariffs(rawText) {
     throw new Error('No green-tariff date ranges found')
   }
 
-  tariffs.sort((left, right) => left.startDate.localeCompare(right.startDate))
+  tariffs.sort((left, right) => left.start_date.localeCompare(right.start_date))
 
   for (const [index, tariff] of tariffs.entries()) {
-    const start = dateToTimestamp(tariff.startDate)
-    const end = dateToTimestamp(tariff.endDate)
+    const start = dateToTimestamp(tariff.start_date)
+    const end = dateToTimestamp(tariff.end_date)
 
     if (start > end) {
-      throw new Error(`Invalid green-tariff range: ${tariff.startDate} to ${tariff.endDate}`)
+      throw new Error(`Invalid green-tariff range: ${tariff.start_date} to ${tariff.end_date}`)
     }
 
     if (!Number.isFinite(tariff.tariff) || tariff.tariff <= 0) {
-      throw new Error(`Invalid green-tariff value for ${tariff.startDate}`)
+      throw new Error(`Invalid green-tariff value for ${tariff.start_date}`)
     }
 
-    if (index > 0 && start <= dateToTimestamp(tariffs[index - 1].endDate)) {
-      throw new Error(`Overlapping green-tariff range at ${tariff.startDate}`)
+    if (index > 0 && start <= dateToTimestamp(tariffs[index - 1].end_date)) {
+      throw new Error(`Overlapping green-tariff range at ${tariff.start_date}`)
     }
   }
 
@@ -111,9 +111,9 @@ export function parseGreenTariffs(rawText) {
 }
 
 export function findGreenTariffByDate(tariffs, targetTimestamp) {
-  const matching = tariffs.find(({ startDate, endDate }) => (
-    targetTimestamp >= dateToTimestamp(startDate)
-    && targetTimestamp <= dateToTimestamp(endDate)
+  const matching = tariffs.find(({ start_date, end_date }) => (
+    targetTimestamp >= dateToTimestamp(start_date)
+    && targetTimestamp <= dateToTimestamp(end_date)
   ))
 
   if (!matching) {
@@ -191,7 +191,7 @@ export async function checkNerc(page) {
     decree: {
       id: currentDecree.no,
       url: currentDecree.url,
-      publishedAt: currentDecree.published_at,
+      published_at: currentDecree.published_at,
     },
   }
 }

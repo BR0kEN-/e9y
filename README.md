@@ -79,20 +79,20 @@ the current decree. This shortened example shows two of those ranges:
   "tariff": 6.8001,
   "tariffs": [
     {
-      "startDate": "2025-01-01",
-      "endDate": "2025-12-31",
+      "start_date": "2025-01-01",
+      "end_date": "2025-12-31",
       "tariff": 6.8001
     },
     {
-      "startDate": "2026-01-01",
-      "endDate": "2029-12-31",
+      "start_date": "2026-01-01",
+      "end_date": "2029-12-31",
       "tariff": 6.134
     }
   ],
   "decree": {
     "id": "1613",
     "url": "https://www.nerc.gov.ua/acts/...",
-    "publishedAt": "2026-09-30T16:03:57+03:00"
+    "published_at": "2026-09-30T16:03:57+03:00"
   }
 }
 ```
@@ -116,29 +116,29 @@ contains stable hashes for the Kyiv calendar dates represented by `today` and
 {
   "fingerprint": "...",
   "group": 1.1,
-  "updatedAt": "2026-10-07T09:00:00.000Z",
-  "nextOutage": "2026-10-07T12:00:00.000Z",
-  "nextConnectivity": "2026-10-07T14:00:00.000Z",
+  "updated_at": "2026-10-07T09:00:00.000Z",
+  "next_outage": "2026-10-07T12:00:00.000Z",
+  "next_connectivity": "2026-10-07T14:00:00.000Z",
   "today": {
     "date": "2026-10-07",
     "hash": "...",
-    "hasOutages": true
+    "has_outages": true
   },
   "tomorrow": {
     "date": "2026-10-08",
     "hash": "...",
-    "hasOutages": false
+    "has_outages": false
   },
   "shutdown": {
-    "updatedAt": "2026-10-07T09:05:00.000Z",
-    "startedAt": "2026-10-07T09:00:00.000Z",
-    "endsAt": "2026-10-07T11:00:00.000Z",
+    "updated_at": "2026-10-07T09:05:00.000Z",
+    "started_at": "2026-10-07T09:00:00.000Z",
+    "ends_at": "2026-10-07T11:00:00.000Z",
     "reason": "Екстрені відключення"
   }
 }
 ```
 
-`nextOutage`, `nextConnectivity`, and `shutdown` are `null` when no matching
+`next_outage`, `next_connectivity`, and `shutdown` are `null` when no matching
 transition or current shutdown exists. The ICS response is the read-only
 calendar feed.
 
@@ -171,9 +171,9 @@ rest:
         value_template: "{{ value_json.fingerprint }}"
         json_attributes:
           - group
-          - updatedAt
-          - nextOutage
-          - nextConnectivity
+          - updated_at
+          - next_outage
+          - next_connectivity
           - today
           - tomorrow
           - shutdown
@@ -194,8 +194,8 @@ rest:
 
 The DTEK transition times and current shutdown details are attributes of the
 same entity for dashboard use. Read them with
-`state_attr('sensor.dtek_outage_schedule', 'nextOutage')`,
-`state_attr('sensor.dtek_outage_schedule', 'nextConnectivity')`, and
+`state_attr('sensor.dtek_outage_schedule', 'next_outage')`,
+`state_attr('sensor.dtek_outage_schedule', 'next_connectivity')`, and
 `state_attr('sensor.dtek_outage_schedule', 'shutdown')`.
 
 Add the outage automation below. It compares the entity's previous and current
@@ -235,17 +235,17 @@ variables:
     {% elif previous_tomorrow.date == tomorrow.date %}{{ previous_tomorrow.hash }}
     {% else %}{{ '' }}{% endif %}
   previous_tomorrow_outages: >-
-    {% if previous_today.date == tomorrow.date %}{{ previous_today.hasOutages }}
-    {% elif previous_tomorrow.date == tomorrow.date %}{{ previous_tomorrow.hasOutages }}
+    {% if previous_today.date == tomorrow.date %}{{ previous_today.has_outages }}
+    {% elif previous_tomorrow.date == tomorrow.date %}{{ previous_tomorrow.has_outages }}
     {% else %}{{ false }}{% endif %}
   today_changed: >-
     {{ (previous_today_hash != '' and previous_today_hash != today.hash)
-       or (previous_today_hash == '' and today.hasOutages) }}
+       or (previous_today_hash == '' and today.has_outages) }}
   tomorrow_changed: >-
     {{ (previous_tomorrow_hash != '' and previous_tomorrow_hash != tomorrow.hash)
-       or (previous_tomorrow_hash == '' and tomorrow.hasOutages) }}
+       or (previous_tomorrow_hash == '' and tomorrow.has_outages) }}
   tomorrow_available: >-
-    {{ tomorrow.hasOutages and
+    {{ tomorrow.has_outages and
        (previous_tomorrow_hash == '' or not (previous_tomorrow_outages | bool)) }}
   affected_days: >-
     {% set days = [] %}

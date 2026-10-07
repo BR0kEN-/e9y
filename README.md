@@ -1,7 +1,38 @@
 # e9y API
 
-One Express/Puppeteer service for the DTEK shutdown schedule and the current
-NERC household green-tariff decree. Every route requires HTTP Basic Auth.
+A small HTTP API for DTEK outage data and NERC household green tariffs. Run one
+instance on a machine with Node.js and Chrome, then use it from one or more Home
+Assistant installations. Every route requires HTTP Basic Auth.
+
+## Why this exists
+
+DTEK does not provide a public outage API. The
+[ha-yasno-outages](https://github.com/denysdovhan/ha-yasno-outages) integration
+is easier to install and may be a better fit for some setups, but its data comes
+from the YASNO API and can arrive later than changes on the DTEK website. That
+delay matters when an outage schedule changes during the day and Home Assistant
+uses it for battery planning, load shifting, or notifications.
+
+This service reads the DTEK website directly. It also reads the latest NERC
+decree, so the same service can provide the correct green-tariff price for
+installations commissioned on different dates.
+
+## Features
+
+- Gets the current DTEK schedule for a supported address passed in the request.
+- Returns DTEK data as JSON and as an ICS calendar for Home Assistant.
+- Reports the next outage, next power restoration, current outage reason, and
+  the reason's start and end times.
+- Provides separate hashes for today's and tomorrow's schedules. The included
+  Home Assistant automation uses them without sending a false midnight alert.
+- Finds the latest NERC green-tariff decree, reads all of its date ranges, and
+  returns the price that applies to the requested commissioning date.
+- Caches DTEK data per address and the NERC tariff table once for all dates, so
+  repeated requests do not open unnecessary browser sessions.
+- Includes Home Assistant examples for REST sensors, an outage calendar, and
+  notifications when a schedule or NERC decree changes.
+- Keeps no outage history. When DTEK changes a schedule, the API and calendar
+  show the new version.
 
 ## Configuration
 
@@ -334,12 +365,6 @@ absolute path, validate it with `plutil -lint`, and load it with
 `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/e9y.api.plist`.
 The existing tunnel can continue pointing to `http://192.168.68.59:8085`; this
 repository does not configure or manage that tunnel.
-
-## DTEK cookies
-
-Cookies are grouped by region in JSON. Configure either `DTEK_COOKIES_FILE` or
-`DTEK_COOKIES_JSON`. See
-[`config/dtek-cookies.example.json`](config/dtek-cookies.example.json).
 
 ## Development
 

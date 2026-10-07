@@ -1,8 +1,8 @@
 # e9y API
 
 A small HTTP API for DTEK outage data and NERC household green tariffs. Run one
-instance on a machine with Node.js and Chrome, then use it from one or more Home
-Assistant installations. Every route requires HTTP Basic Auth.
+instance on a machine with Node.js and Chrome Headless Shell, then use it from
+one or more Home Assistant installations. Every route requires HTTP Basic Auth.
 
 ## Why this exists
 
@@ -36,17 +36,26 @@ installations commissioned on different dates.
 
 ## Configuration
 
-Install Chrome or Chromium, then copy `.env.example` to `.env`. Set a strong
-username and password, set `PUPPETEER_EXECUTABLE_PATH` to that system browser,
-and adjust the optional DTEK cookie settings if the selected regional site
-needs them. The project uses `puppeteer-core`; `npm install` and `npm ci` never
-download a browser.
+Install the dependencies, then download the pinned Chrome Headless Shell build:
+
+```sh
+npm ci
+npx @puppeteer/browsers install chrome-headless-shell@150.0.7871.46 --path "$HOME/.cache/e9y-api"
+```
+
+The install command prints the browser executable's absolute path. Copy
+`.env.example` to `.env`, use that path for `PUPPETEER_EXECUTABLE_PATH`, set a
+strong username and password, and adjust the optional DTEK cookie settings if
+the selected regional site needs them.
 
 ```sh
 cp .env.example .env
-npm ci
 node --env-file=.env index.js
 ```
+
+`puppeteer-core` and Chrome Headless Shell are pinned to matching versions that
+run on macOS 12 Monterey. `npm install` and `npm ci` never download a browser;
+the separate command above performs that explicit download.
 
 The service listens on `0.0.0.0:8085` by default.
 
@@ -335,9 +344,9 @@ answer the request.
 
 ## Native macOS service
 
-On the Mac that owns `192.168.68.59`, install Node.js 22.12 or newer and Google
-Chrome or Chromium, clone this repository, run `npm ci`, and create `.env`. A
-user LaunchAgent can then run:
+On the Mac that owns `192.168.68.59`, install Node.js 22.12 or newer, clone this
+repository, and follow the configuration steps above. A user LaunchAgent can
+then run:
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -348,14 +357,14 @@ user LaunchAgent can then run:
   <key>ProgramArguments</key>
   <array>
     <string>/usr/local/bin/node</string>
-    <string>--env-file=/ABSOLUTE/PATH/e9y-api/.env</string>
-    <string>/ABSOLUTE/PATH/e9y-api/index.js</string>
+    <string>--env-file=/Users/jondoe/e9y/.env</string>
+    <string>/Users/jondoe/e9y/index.js</string>
   </array>
-  <key>WorkingDirectory</key><string>/ABSOLUTE/PATH/e9y-api</string>
+  <key>WorkingDirectory</key><string>/Users/jondoe/e9y</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>/ABSOLUTE/PATH/e9y-api/e9y-api.log</string>
-  <key>StandardErrorPath</key><string>/ABSOLUTE/PATH/e9y-api/e9y-api.error.log</string>
+  <key>StandardOutPath</key><string>/Users/jondoe/e9y/e9y-api.log</string>
+  <key>StandardErrorPath</key><string>/Users/jondoe/e9y/e9y-api.error.log</string>
 </dict>
 </plist>
 ```

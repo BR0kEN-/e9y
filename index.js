@@ -71,7 +71,7 @@ const config = {
 const dtekCache = new Cache(integer('DTEK_CACHE_TTL_SECONDS', 180) * 1000)
 const nercCache = new Cache(integer('NERC_CACHE_TTL_SECONDS', 86_400) * 1000)
 const browser = await puppeteer.launch({
-  headless: true,
+  headless: 'shell',
   executablePath: required('PUPPETEER_EXECUTABLE_PATH'),
   args: [
     '--no-sandbox',

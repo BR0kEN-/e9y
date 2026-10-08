@@ -130,12 +130,21 @@ function nextTransitions(events, now) {
 function serializeShutdown(shutdown) {
   return shutdown
     ? {
-        updated_at: shutdown.updatedAt.toISOString(),
-        started_at: shutdown.startedAt.toISOString(),
-        ends_at: shutdown.endsAt.toISOString(),
+        updated_at: shutdown.updated_at.toISOString(),
+        started_at: shutdown.started_at.toISOString(),
+        ends_at: shutdown.ends_at.toISOString(),
         reason: shutdown.reason,
       }
     : null
+}
+
+function serializeEvents(events) {
+  return [...events]
+    .sort((left, right) => left.start - right.start || left.end - right.end)
+    .map((event) => ({
+      start: event.start.toISOString(),
+      end: event.end.toISOString(),
+    }))
 }
 
 export function buildDtekStatus(data, now = new Date()) {
@@ -150,7 +159,8 @@ export function buildDtekStatus(data, now = new Date()) {
   return {
     fingerprint,
     group: data.group,
-    updated_at: data.schedule.updatedAt.toISOString(),
+    updated_at: data.schedule.updated_at.toISOString(),
+    events: serializeEvents(data.schedule.events),
     ...transitions,
     today,
     tomorrow,
@@ -248,7 +258,8 @@ export async function collectDtek(page, context, address, cookies, timeout) {
   })
 
   await page.goto(`${baseUrl}/ua/shutdowns`, { waitUntil: 'domcontentloaded' })
-  await page.waitForFunction(() => Boolean(document.querySelector('.wrapper')), { timeout })
+  // Handle `Сайт працює, але через велике навантаження треба трохи зачекати і сторінка завантажиться.`.
+  await page.waitForFunction(() => Boolean(document.querySelector('.wrapper')), { timeout: 120_000 })
 
   if (address.region !== 'kem') {
     await fillAutocomplete(page, 'city', address.locality)
@@ -270,7 +281,7 @@ export async function collectDtek(page, context, address, cookies, timeout) {
   const data = response.data[address.building] || Object.values(response.data)[0]
   const extracted = await page.evaluate(() => ({
     group: DisconSchedule.group,
-    updatedAt: DisconSchedule.fact.update,
+    updated_at: DisconSchedule.fact.update,
     days: Object.entries(DisconSchedule.fact.data).map(([timestamp, groups]) => ({
       timestamp: Number(timestamp),
       hours: groups[DisconSchedule.group],
@@ -282,13 +293,13 @@ export async function collectDtek(page, context, address, cookies, timeout) {
     shutdown: !data?.type
       ? null
       : {
-          updatedAt: toDatetime(response.updateTimestamp),
-          startedAt: toDatetime(data.start_date),
-          endsAt: toDatetime(data.end_date),
+          updated_at: toDatetime(response.updateTimestamp),
+          started_at: toDatetime(data.start_date),
+          ends_at: toDatetime(data.end_date),
           reason: Number(data.type) === 1 ? 'Планові ремонтні роботи' : data.sub_type || 'Unknown',
         },
     schedule: {
-      updatedAt: toDatetime(extracted.updatedAt),
+      updated_at: toDatetime(extracted.updated_at),
       events: buildIntervals(extracted.days),
     },
   }
@@ -320,12 +331,12 @@ export function buildIcs(address, data) {
     lines.push(
       'BEGIN:VEVENT',
       `UID:${uid}@e9y-api`,
-      `DTSTAMP:${formatDateIcs(data.schedule.updatedAt)}Z`,
+      `DTSTAMP:${formatDateIcs(data.schedule.updated_at)}Z`,
       `DTSTART;TZID=Europe/Kyiv:${formatDateIcs(event.start)}`,
       `DTEND;TZID=Europe/Kyiv:${formatDateIcs(event.end)}`,
       `SUMMARY:${escapeIcs(`Power outage (group ${data.group})`)}`,
       `LOCATION:${escapeIcs(location)}`,
-      `DESCRIPTION:${escapeIcs(`Updated at ${formatDate(data.schedule.updatedAt)}`)}`,
+      `DESCRIPTION:${escapeIcs(`Updated at ${formatDate(data.schedule.updated_at)}`)}`,
       'END:VEVENT',
     )
   }

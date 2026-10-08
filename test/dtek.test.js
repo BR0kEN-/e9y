@@ -42,7 +42,7 @@ test('calendar event UIDs remain stable across refreshes', () => {
     group: 1.1,
     shutdown: null,
     schedule: {
-      updatedAt: new Date('2026-01-01T10:00:00Z'),
+      updated_at: new Date('2026-01-01T10:00:00Z'),
       events: [{
         start: new Date('2026-01-01T18:00:00Z'),
         end: new Date('2026-01-01T20:00:00Z'),
@@ -59,7 +59,7 @@ test('buildDtekStatus hashes today and tomorrow independently', () => {
     group: 1.1,
     shutdown: null,
     schedule: {
-      updatedAt: new Date('2026-03-28T10:00:00Z'),
+      updated_at: new Date('2026-03-28T10:00:00Z'),
       events: [
         {
           start: new Date('2026-03-28T22:30:00Z'),
@@ -87,7 +87,7 @@ test('buildDtekStatus has a stable hash for an empty schedule', () => {
   const data = {
     group: 1.1,
     schedule: {
-      updatedAt: new Date('2026-01-01T10:00:00Z'),
+      updated_at: new Date('2026-01-01T10:00:00Z'),
       events: [],
     },
   }
@@ -114,7 +114,7 @@ test('buildDtekStatus canonicalizes reordered and overlapping events', () => {
     group: 1.1,
     shutdown: null,
     schedule: {
-      updatedAt: new Date('2026-01-01T07:00:00Z'),
+      updated_at: new Date('2026-01-01T07:00:00Z'),
       events,
     },
   })
@@ -124,6 +124,19 @@ test('buildDtekStatus canonicalizes reordered and overlapping events', () => {
     buildDtekStatus(data([eventA, eventB]), now).fingerprint,
     buildDtekStatus(data([eventB, eventA]), now).fingerprint,
   )
+  assert.deepEqual(
+    buildDtekStatus(data([eventB, eventA]), now).events,
+    [
+      {
+        start: '2026-01-01T08:00:00.000Z',
+        end: '2026-01-01T10:00:00.000Z',
+      },
+      {
+        start: '2026-01-01T09:00:00.000Z',
+        end: '2026-01-01T11:00:00.000Z',
+      },
+    ],
+  )
 })
 
 test('buildDtekStatus exposes the next outage and connectivity transitions', () => {
@@ -131,7 +144,7 @@ test('buildDtekStatus exposes the next outage and connectivity transitions', () 
     group: 1.1,
     shutdown: null,
     schedule: {
-      updatedAt: new Date('2026-01-01T07:00:00Z'),
+      updated_at: new Date('2026-01-01T07:00:00Z'),
       events: [
         {
           start: new Date('2026-01-01T08:00:00Z'),
@@ -166,13 +179,13 @@ test('buildDtekStatus serializes current shutdown details', () => {
   const data = {
     group: 1.1,
     shutdown: {
-      updatedAt: new Date('2026-01-01T07:00:00Z'),
-      startedAt: new Date('2026-01-01T08:00:00Z'),
-      endsAt: new Date('2026-01-01T10:00:00Z'),
+      updated_at: new Date('2026-01-01T07:00:00Z'),
+      started_at: new Date('2026-01-01T08:00:00Z'),
+      ends_at: new Date('2026-01-01T10:00:00Z'),
       reason: 'Екстрені відключення',
     },
     schedule: {
-      updatedAt: new Date('2026-01-01T07:00:00Z'),
+      updated_at: new Date('2026-01-01T07:00:00Z'),
       events: [],
     },
   }

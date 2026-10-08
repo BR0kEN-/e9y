@@ -20,7 +20,8 @@ installations commissioned on different dates.
 ## Features
 
 - Gets the current DTEK schedule for addresses in the configured DTEK region.
-- Returns DTEK data as JSON and as an ICS calendar for Home Assistant.
+- Returns DTEK data and schedule events as JSON, with an optional ICS feed for
+  calendar clients.
 - Reports the next outage, next power restoration, current outage reason, and
   the reason's start and end times.
 - Provides separate hashes for today's and tomorrow's schedules. The included
@@ -31,8 +32,8 @@ installations commissioned on different dates.
   to the last cached result when one exists.
 - Caches DTEK data per address and the NERC tariff table once for all dates, so
   repeated requests do not open unnecessary browser sessions.
-- Includes Home Assistant examples for REST sensors, an outage calendar, and
-  notifications when a schedule or NERC decree changes.
+- Includes Home Assistant examples for REST sensors and notifications when a
+  schedule or NERC decree changes.
 - Keeps no outage history. When DTEK changes a schedule, the API and calendar
   show the new version.
 
@@ -117,6 +118,12 @@ contains stable hashes for the Kyiv calendar dates represented by `today` and
   "fingerprint": "...",
   "group": 1.1,
   "updated_at": "2026-10-07T09:00:00.000Z",
+  "events": [
+    {
+      "start": "2026-10-07T12:00:00.000Z",
+      "end": "2026-10-07T14:00:00.000Z"
+    }
+  ],
   "next_outage": "2026-10-07T12:00:00.000Z",
   "next_connectivity": "2026-10-07T14:00:00.000Z",
   "today": {
@@ -138,9 +145,10 @@ contains stable hashes for the Kyiv calendar dates represented by `today` and
 }
 ```
 
-`next_outage`, `next_connectivity`, and `shutdown` are `null` when no matching
-transition or current shutdown exists. The ICS response is the read-only
-calendar feed.
+`events` contains the ordered outage intervals used by dashboards and
+automations. `next_outage`, `next_connectivity`, and `shutdown` are `null` when
+no matching transition or current shutdown exists. The ICS response remains
+available as an optional read-only calendar feed.
 
 ### Home Assistant
 
@@ -160,17 +168,24 @@ sensors under each resource are populated by one HTTP request:
 
 ```yaml
 rest:
-  - resource: "https://grid-data.example.com/dtek/shutdowns.json?region=dnem&locality=DNIPRO_URL_ENCODED&street=STREET_URL_ENCODED&building=80"
+  ## Provide your address.
+  ## <REGION>: dnem
+  ## <CITY>: Дніпро
+  ## <STREET>: шосе Запорізьке
+  ## <BLD>: 80
+  - resource: "https://grid-data.example.com/dtek/shutdowns.json?region=<REGION>&locality=<CITY>&street=<STREET>&building=<BLD>"
+    timeout: 160
+    scan_interval: 180
     authentication: basic
     username: !secret e9y_api_username
     password: !secret e9y_api_password
-    scan_interval: 180
     sensor:
       - name: DTEK Outage Schedule
         unique_id: dtek_outage_schedule
         value_template: "{{ value_json.fingerprint }}"
         json_attributes:
           - group
+          - events
           - updated_at
           - next_outage
           - next_connectivity
@@ -178,11 +193,13 @@ rest:
           - tomorrow
           - shutdown
 
-  - resource: "https://grid-data.example.com/nerc/green-tariff-price?date=2025-09-01"
+  ## Provide the Green Tariff commissioning date, e.g. `2025-09-01`.
+  - resource: "https://grid-data.example.com/nerc/green-tariff-price?date=<DATE>"
+    timeout: 160
+    scan_interval: 86400
     authentication: basic
     username: !secret e9y_api_username
     password: !secret e9y_api_password
-    scan_interval: 86400
     sensor:
       - name: Electricity Export Rate
         unique_id: electricity_export_rate
@@ -192,8 +209,9 @@ rest:
           - decree
 ```
 
-The DTEK transition times and current shutdown details are attributes of the
-same entity for dashboard use. Read them with
+The DTEK schedule events, transition times, and current shutdown details are
+attributes of the same entity for dashboard and automation use. Read them with
+`state_attr('sensor.dtek_outage_schedule', 'events')`,
 `state_attr('sensor.dtek_outage_schedule', 'next_outage')`,
 `state_attr('sensor.dtek_outage_schedule', 'next_connectivity')`, and
 `state_attr('sensor.dtek_outage_schedule', 'shutdown')`.
@@ -253,10 +271,6 @@ variables:
     {% if tomorrow_changed | bool %}{% set days = days + ['tomorrow'] %}{% endif %}
     {{ days | join(' and ') }}
 actions:
-  - action: homeassistant.update_entity
-    data:
-      entity_id:
-        - calendar.dtek_dnipro_outages_1_1  # Replace per HA instance.
   - choose:
       - conditions:
           - condition: template
@@ -326,10 +340,189 @@ action:
         {{ decree.url }}
 ```
 
-For the calendar, add the **Remote Calendar** integration in the HA UI. Use the
-authenticated `.ics` URL, select HTTP Basic Auth, and enter the same username
-and password. Keep the REST sensor as well: the calendar provides events while
-the JSON sensor provides deterministic change detection.
+Home Assistant does not need a Remote Calendar entity: the REST sensor already
+contains the schedule in its `events` attribute. The authenticated `.ics`
+endpoint is still available for external calendar clients.
+
+## Telegram Bot
+
+Ignore this automation if you don't want/have a Telegram Bot.
+
+```yaml
+alias: Telegram Bot
+mode: single
+triggers:
+  - trigger: state
+    attribute: command
+    entity_id:
+      ## Replace with `event.YOUR_BOT_update_event`.
+      - event.watchdog_update_event
+conditions: []
+actions:
+  - variables:
+      datetime_format: '%b %d, %Y at %H:%M'
+  - alias: Commands
+    choose:
+      - alias: /start
+        conditions:
+          - alias: check
+            condition: template
+            value_template: >-
+              {{ trigger.to_state.attributes.command == '/start' }}
+        sequence:
+          - variables:
+              output: Oi!
+      - alias: /help
+        conditions:
+          - alias: check
+            condition: template
+            value_template: >-
+              {{ trigger.to_state.attributes.command == '/help' }}
+        sequence:
+          - variables:
+              ## Replace `<YOUR_STREET>` and `<YOUR_CT>`.
+              output: >-
+                • Outdoor temperature and humidity are measured by an external
+                sensor installed under the roof and shielded from direct
+                sunlight and wind by surrounding walls.
+
+                • The grid on/off schedule is retrieved from DTEK and updated
+                every 3 minutes.
+
+                • The grid on/off notifications are 100% accurate at mine's,
+                though at your address the relevancy may drop due to several
+                reasons.
+
+                • The grid is monitored on the <YOUR_STREET> street and is accurate
+                for connections to <YOUR_CT>.
+
+                • You may occasionally receive multiple grid on/off
+                notifications within a short period, even though power remains
+                available at your location. This can happen for several reasons:
+                  • Grid frequency temporarily falls outside the 49–51 Hz range; reconnection occurs automatically once the frequency stabilizes.
+                  • The circuit breaker on my AVR trips; in this case, reconnection requires manual intervention.
+                • The outage reason may be inaccurate or outdated. DTEK isn't
+                really focused at maintaining it.
+      - alias: /temp
+        conditions:
+          - alias: check
+            condition: template
+            value_template: >-
+              {{ trigger.to_state.attributes.command == '/temp' }}
+        sequence:
+          - variables:
+              output: >-
+                {{ states('sensor.indoor_outdoor_meter_043e_temperature', false, true) }} sheltered ambient
+                {{ states('sensor.samsung_ehs_outdoor_temperature', false, true) }} outdoor ambient
+                {{ states('sensor.aerostar_ecostar_500_ec_x_outdoor_temperature', false, true) }} air
+      - alias: /humi
+        conditions:
+          - alias: check
+            condition: template
+            value_template: >-
+              {{ trigger.to_state.attributes.command == '/humi' }}
+        sequence:
+          - variables:
+              output: >-
+                {{ states('sensor.indoor_outdoor_meter_043e_humidity') }}%
+      - alias: /next_[outage|connectivity]
+        conditions:
+          - alias: check
+            condition: template
+            value_template: >-
+              {{ trigger.to_state.attributes.command in ['/next_outage', '/next_connectivity'] }}
+        sequence:
+          - variables:
+              output: >-
+                {%- set value = state_attr("sensor.dtek_outage_schedule", trigger.to_state.attributes.command[1:]) -%}
+                {%- if value -%}
+                  {{ as_local(as_datetime(value)).strftime(datetime_format) }}
+                {%- else -%}
+                  Unknown
+                {%- endif -%}
+                {{ '\n\n🕒 Refreshed at ' ~ as_local(as_datetime(states.sensor.dtek_outage_schedule.last_reported)).strftime(datetime_format) }}
+      - alias: /outage_reason
+        conditions:
+          - alias: check
+            condition: template
+            value_template: >-
+              {{ trigger.to_state.attributes.command == '/outage_reason' }}
+        sequence:
+          - variables:
+              output: >-
+                {%- set value = state_attr("sensor.dtek_outage_schedule", "shutdown") -%}
+
+                {%- if value -%}
+                  {%- set output = '⚡ ' ~ value.reason ~ '\n' -%}
+                  {%- set output = output ~ '\nStarted on ' ~ as_local(as_datetime(value.started_at)).strftime(datetime_format) ~ '\n' -%}
+                  {%- set output = output ~ '\nEnds on ' ~ as_local(as_datetime(value.ends_at)).strftime(datetime_format) ~ '\n' -%}
+                  {%- set output = output ~ '\n🕒 Updated on ' ~ as_local(as_datetime(value.updated_at)).strftime(datetime_format) ~ '\n' -%}
+                  {{ output }}
+                {%- else -%}
+                  Unknown
+                {%- endif -%}
+                {{ '\n\n🕒 Refreshed on ' ~ as_local(as_datetime(states.sensor.dtek_outage_schedule.last_reported)).strftime(datetime_format) }}
+      - alias: /outage_schedule
+        conditions:
+          - alias: check
+            condition: template
+            value_template: >-
+              {{ trigger.to_state.attributes.command == '/outage_schedule' }}
+        sequence:
+          - variables:
+              output: |-
+                {%- set events = state_attr('sensor.dtek_outage_schedule', 'events') or [] -%}
+                {%- set ns = namespace(cur_date=None, out='') -%}
+
+                {%- if events | length == 0 -%}
+                  {%- set ns.out = 'No power outages scheduled.\n' -%}
+                {%- else -%}
+                  {%- for e in events -%}
+                    {%- set s = as_datetime(e.start) -%}
+                    {%- set f = as_datetime(e.end) -%}
+                    {%- set d1 = s.date() -%}
+
+                    {%- if ns.cur_date != d1 -%}
+                      {%- set ns.cur_date = d1 -%}
+                      {%- if ns.out != '' -%}
+                        {%- set ns.out = ns.out ~ '\n' -%}
+                      {%- endif -%}
+                      {%- set ns.out = ns.out ~ '⚡ ' ~ d1.strftime('%d %b, %Y') ~ '\n' -%}
+                    {%- endif -%}
+
+                    {%- if f.date() != d1 -%}
+                      {%- set ns.out = ns.out ~ '• ' ~ s.strftime('%H:%M') ~ ' – 00:00' ~ '\n' -%}
+                    {%- else -%}
+                      {%- set ns.out = ns.out ~ '• ' ~ s.strftime('%H:%M') ~ ' – ' ~ f.strftime('%H:%M') ~ '\n' -%}
+                    {%- endif -%}
+
+                    {# second-day segment only if end isn't exactly 00:00 #}
+                    {%- if f.date() != d1 and not (f.hour == 0 and f.minute == 0 and f.second == 0) -%}
+                      {%- set d2 = f.date() -%}
+                      {%- if ns.cur_date != d2 -%}
+                        {%- set ns.cur_date = d2 -%}
+                        {%- set ns.out = ns.out ~ '\n⚡ ' ~ d2.strftime('%d %b, %Y') ~ '\n' -%}
+                      {%- endif -%}
+                      {%- set ns.out = ns.out ~ '• 00:00 – ' ~ f.strftime('%H:%M') ~ '\n' -%}
+                    {%- endif -%}
+
+                  {%- endfor -%}
+
+                {%- endif -%}
+                {{ (ns.out | trim) ~ '\n\n🕒 Refreshed on ' ~ as_local(as_datetime(states.sensor.dtek_outage_schedule.last_reported)).strftime(datetime_format) }}
+    default:
+      - variables:
+          output: WTF?
+  - action: telegram_bot.send_message
+    metadata: {}
+    data:
+      ## Replace with your Telegram Bot config entry.
+      config_entry_id: 01KE01C6X423DYR165PHVBD5VB
+      parse_mode: plain_text
+      message: '{{ output }}'
+      chat_id:
+        - '{{ trigger.to_state.attributes.chat_id | int }}'
+```
 
 ## Cache
 

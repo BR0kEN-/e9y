@@ -2,7 +2,7 @@ import express from 'express'
 import puppeteer from 'puppeteer-core'
 
 import { basicAuth } from './src/auth.js'
-import { Cache, retryOnce } from './src/cache.js'
+import { Cache } from './src/cache.js'
 import { buildDtekStatus, buildIcs, collectDtek } from './src/dtek.js'
 import { checkNerc, dateToTimestamp, findGreenTariffByDate } from './src/nerc.js'
 
@@ -96,17 +96,13 @@ const app = express()
 app.use(basicAuth(config.username, config.password))
 
 async function loadDtek(address) {
-  const collect = () => withPage((page, context) => collectDtek(
+  return withPage((page, context) => collectDtek(
     page,
     context,
     address,
     config.dtekCookies[address.region] || [],
     config.navigationTimeout,
   ))
-
-  return retryOnce(collect, (error) => {
-    console.warn('DTEK crawl failed; retrying once in a fresh browser context', error)
-  })
 }
 
 async function getDtek(request) {

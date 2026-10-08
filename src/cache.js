@@ -40,12 +40,3 @@ export class Cache {
     return promise
   }
 }
-
-export async function retryOnce(loader, onRetry = () => {}) {
-  try {
-    return await loader()
-  } catch (error) {
-    onRetry(error)
-    return loader()
-  }
-}

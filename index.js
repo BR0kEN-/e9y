@@ -6,6 +6,11 @@ import { Cache } from './src/cache.js'
 import { buildDtekStatus, buildIcs, collectDtek } from './src/dtek.js'
 import { checkNerc, dateToTimestamp, findGreenTariffByDate } from './src/nerc.js'
 
+for (const level of ['info', 'error']) {
+  const write = console[level].bind(console)
+  console[level] = (...args) => write(new Date().toISOString(), ...args)
+}
+
 process.env.TZ = 'Europe/Kyiv'
 process.env.LOCALE = 'uk-UA'
 

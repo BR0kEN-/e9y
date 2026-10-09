@@ -10,6 +10,7 @@ const DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
 const FINGERPRINT_VERSION = 1
 const FINGERPRINT_DATE = /^\d{4}-\d{2}-\d{2}$/
 const FINGERPRINT_HASH = /^[a-f0-9]{64}$/
+const preparedDtekPages = new WeakMap()
 
 function formatDate(input) {
   const [date, time] = input.toLocaleString(process.env.LOCALE, { timeZone: process.env.TZ }).split(', ')
@@ -268,61 +269,13 @@ export function optionIndex(options, requested) {
   return suffix >= 0 ? suffix : 0
 }
 
-async function fillAutocomplete(page, name, value) {
-  const input = `#discon_form input[name="${name}"]`
-  const selector = `${input} ~ .autocomplete-items > div`
-
-  await new Promise((resolve) => setTimeout(resolve, 50))
-  await page.locator(input).setWaitForEnabled(true).fill(value)
-  await page.waitForSelector(selector)
-
-  const text = await page.$$eval(selector, (nodes) => nodes.map((node) => node.textContent || ''))
-  const options = await page.$$(selector)
-  await options[optionIndex(text, value)].click()
-  await page.waitForSelector(selector, { hidden: true })
-}
-
-function waitForDetails(page, timeout) {
-  let timer
-  let handler
-
-  const cancel = () => {
-    clearTimeout(timer)
-    page.off('response', handler)
-  }
-
-  const promise = new Promise((resolve, reject) => {
-    timer = setTimeout(() => {
-      cancel()
-      reject(new Error('Timed out waiting for DTEK details'))
-    }, timeout)
-
-    handler = async (response) => {
-      if (!response.url().endsWith('/ua/ajax')) {
-        return
-      }
-
-      try {
-        const data = await response.json()
-
-        if (data?.data && data.updateTimestamp !== undefined) {
-          cancel()
-          resolve(data)
-        }
-      } catch {
-        // Not the final address-details response.
-      }
-    }
-
-    page.on('response', handler)
-  })
-
-  return { promise, cancel }
-}
-
-export async function collectDtek(page, address, timeout) {
+async function prepareDtekPage(page, address) {
   const domain = `dtek-${address.region}.com.ua`
   const baseUrl = `https://www.${domain}`
+
+  if (preparedDtekPages.get(page) === address.region) {
+    return
+  }
 
   await page.setRequestInterception(true)
   page.on('request', (request) => {
@@ -334,37 +287,144 @@ export async function collectDtek(page, address, timeout) {
 
   await page.goto(`${baseUrl}/ua/shutdowns`, { waitUntil: 'domcontentloaded' })
   // Handle `Сайт працює, але через велике навантаження треба трохи зачекати і сторінка завантажиться.`.
-  await page.waitForFunction(() => Boolean(document.querySelector('.wrapper')), { timeout: 120_000 })
+  await page.waitForFunction(() => (
+    typeof DisconSchedule !== 'undefined'
+      && Boolean(DisconSchedule.fact)
+      && Boolean(DisconSchedule.preset)
+      && Boolean(DisconSchedule.streets)
+      && Boolean(document.querySelector('#discon_form'))
+  ), { timeout: 120_000 })
 
-  if (address.region !== 'kem') {
-    await fillAutocomplete(page, 'city', address.locality)
+  preparedDtekPages.set(page, address.region)
+}
+
+async function queryDtekAddress(page, address, timeout) {
+  return page.evaluate(async ({ requested, requestTimeout }) => {
+    const normalize = (value) => String(value).trim().replace(/\s+/g, ' ').toLocaleLowerCase('uk-UA')
+    const select = (options, value, type) => {
+      const target = normalize(value)
+      const normalized = options.map(normalize)
+      let index = normalized.indexOf(target)
+
+      if (index < 0) index = normalized.findIndex((option) => option.endsWith(` ${target}`))
+      if (index < 0) index = normalized.findIndex((option) => option.includes(target))
+      if (index < 0) throw new Error(`DTEK ${type} not found: ${value}`)
+      return options[index]
+    }
+
+    const streetsByLocality = DisconSchedule.streets
+    let locality = requested.locality
+    let streets
+
+    if (Array.isArray(streetsByLocality)) {
+      streets = streetsByLocality
+    } else {
+      locality = select(Object.keys(streetsByLocality), requested.locality, 'locality')
+      streets = streetsByLocality[locality]
+    }
+
+    const street = select(streets, requested.street, 'street')
+    const fields = []
+    if (document.querySelector('#discon_form [name="city"]')) {
+      fields.push({ name: 'city', value: locality })
+    }
+    fields.push({ name: 'street', value: street })
+    if (DisconSchedule.fact?.update) {
+      fields.push({ name: 'updateFact', value: DisconSchedule.fact.update })
+    }
+
+    const body = new URLSearchParams({ method: 'getHomeNum' })
+    fields.forEach(({ name, value }, index) => {
+      body.set(`data[${index}][name]`, name)
+      body.set(`data[${index}][value]`, value)
+    })
+
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), requestTimeout)
+    let answer
+
+    try {
+      const response = await fetch(document.querySelector('meta[name="ajaxUrl"]').content, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          Accept: 'application/json, text/javascript, */*; q=0.01',
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content,
+          'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: body.toString(),
+        signal: controller.signal,
+      })
+
+      if (!response.ok) throw new Error(`DTEK returned HTTP ${response.status}`)
+      answer = await response.json()
+    } finally {
+      clearTimeout(timer)
+    }
+
+    if (!answer?.result || !answer.data) {
+      throw new Error('DTEK address lookup failed')
+    }
+
+    if (answer.fact) {
+      DisconSchedule.fact = answer.fact
+      DisconSchedule.preset = answer.preset
+      const update = document.querySelector('#discon_form [name="updateFact"]')
+      if (update) update.value = answer.fact.update
+    }
+
+    return {
+      data: answer.data,
+      updateTimestamp: answer.updateTimestamp,
+      schedule: {
+        updated_at: DisconSchedule.fact.update,
+        days: Object.entries(DisconSchedule.fact.data).map(([timestamp, groups]) => ({
+          timestamp: Number(timestamp),
+          groups,
+        })),
+      },
+    }
+  }, { requested: address, requestTimeout: timeout })
+}
+
+function addressDetails(response, address) {
+  const entries = Object.entries(response.data)
+  const data = response.data[address.building] || (entries.length === 1 ? entries[0][1] : null)
+
+  if (!data) {
+    throw new Error(`DTEK building not found: ${address.building}`)
   }
-  await fillAutocomplete(page, 'street', address.street)
 
-  const details = waitForDetails(page, timeout)
-  let response
+  const groups = Array.isArray(data.sub_type_reason)
+    ? data.sub_type_reason
+    : [data.sub_type_reason]
+  const groupKey = groups.find(Boolean)
 
-  try {
-    [response] = await Promise.all([
-      details.promise,
-      fillAutocomplete(page, 'house_num', address.building),
-    ])
-  } finally {
-    details.cancel()
+  if (!groupKey) {
+    throw new Error(`DTEK group not found for building: ${address.building}`)
   }
 
-  const data = response.data[address.building] || Object.values(response.data)[0]
-  const extracted = await page.evaluate(() => ({
-    group: DisconSchedule.group,
-    updated_at: DisconSchedule.fact.update,
-    days: Object.entries(DisconSchedule.fact.data).map(([timestamp, groups]) => ({
-      timestamp: Number(timestamp),
-      hours: groups[DisconSchedule.group],
-    })),
+  const group = Number.parseFloat(String(groupKey).replace(/^[^\d]+/, ''))
+
+  if (!Number.isFinite(group)) {
+    throw new Error(`Invalid DTEK group: ${groupKey}`)
+  }
+
+  return { data, group, groupKey }
+}
+
+export async function collectDtek(page, address, timeout) {
+  await prepareDtekPage(page, address)
+  const response = await queryDtekAddress(page, address, timeout)
+  const { data, group, groupKey } = addressDetails(response, address)
+  const days = response.schedule.days.map(({ timestamp, groups }) => ({
+    timestamp,
+    hours: groups[groupKey] || {},
   }))
 
   return {
-    group: Number.parseFloat(String(extracted.group).replace(/[^\d.]+/, '')),
+    group,
     shutdown: !data?.type
       ? null
       : {
@@ -374,8 +434,8 @@ export async function collectDtek(page, address, timeout) {
           reason: Number(data.type) === 1 ? 'Планові ремонтні роботи' : data.sub_type || 'Unknown',
         },
     schedule: {
-      updated_at: toDatetime(extracted.updated_at),
-      events: buildIntervals(extracted.days),
+      updated_at: toDatetime(response.schedule.updated_at),
+      events: buildIntervals(days),
     },
   }
 }

@@ -29,8 +29,8 @@ installations commissioned on different dates.
   a false midnight alert.
 - Finds the latest NERC green-tariff decree, reads all of its date ranges, and
   returns the price that applies to the requested commissioning date.
-- Keeps one browser session per DTEK region so cookies survive between address
-  lookups, and serializes lookups within that session.
+- Loads one browser page per DTEK region, keeps its cookies and regional
+  schedule state, and resolves later addresses through DTEK's AJAX endpoint.
 - Caches DTEK data per address and the NERC tariff table once for all dates, so
   repeated requests do not open unnecessary browser sessions.
 - Includes Home Assistant examples for REST sensors and notifications when a
@@ -513,8 +513,12 @@ NERC_CACHE_TTL_SECONDS=86400
 
 DTEK results are cached per normalized address. `previous_fingerprint` is not
 part of that cache key; its comparison is applied after reading the cached schedule.
-Addresses in the same region share a persistent browser context so refreshed
-DTEK cookies are retained, while their uncached crawls run one at a time.
+Addresses in the same region share one persistent browser page, refreshed DTEK
+cookies, and the page's complete schedule for all groups. After that page is
+loaded, an expired address entry performs only the lightweight address AJAX
+lookup; it does not navigate or reload the DTEK page. These AJAX lookups run one
+at a time on the shared page. The page is recreated after a failed lookup, while
+the browser context and its cookies remain alive.
 NERC has one cache entry for the current decree and its complete tariff table,
 so all commissioning dates reuse the same crawl. Concurrent misses share the
 in-flight crawl. If a refresh fails, the last successful value is served with

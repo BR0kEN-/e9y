@@ -124,7 +124,7 @@ async function createDtekSession(region) {
     throw error
   }
 
-  return { context, tail: Promise.resolve() }
+  return { context, page: null, tail: Promise.resolve() }
 }
 
 function getDtekSession(region) {
@@ -142,13 +142,17 @@ function getDtekSession(region) {
 async function withDtekPage(region, callback) {
   const session = await getDtekSession(region)
   const job = session.tail.then(async () => {
-    const page = await session.context.newPage()
+    if (!session.page || session.page.isClosed()) {
+      session.page = await session.context.newPage()
+      session.page.setDefaultNavigationTimeout(config.navigationTimeout)
+    }
 
     try {
-      page.setDefaultNavigationTimeout(config.navigationTimeout)
-      return await callback(page)
-    } finally {
-      await page.close().catch(() => {})
+      return await callback(session.page)
+    } catch (error) {
+      await session.page.close().catch(() => {})
+      session.page = null
+      throw error
     }
   })
 

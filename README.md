@@ -36,6 +36,8 @@ installations commissioned on different dates.
   repeated requests do not open unnecessary browser sessions.
 - Includes Home Assistant examples for REST sensors and notifications when a
   schedule or NERC decree changes.
+- Includes a dependency-free Home Assistant outage card with localized labels,
+  relative times, compact timelines, and configurable presentation.
 - Keeps no outage history. When DTEK changes a schedule, the API and calendar
   show the new version.
 
@@ -271,6 +273,102 @@ attributes of the same entity for dashboard and automation use. Read them with
 `state_attr('sensor.dtek_outage_schedule', 'next_outage')`,
 `state_attr('sensor.dtek_outage_schedule', 'next_connectivity')`, and
 `state_attr('sensor.dtek_outage_schedule', 'shutdown')`.
+
+#### DTEK outage card
+
+The dependency-free [`dtek-outage-card.js`](home-assistant/dtek-outage-card.js)
+renders the sensor as one native-looking Home Assistant card. It includes the
+next outage and restoration, special outage reason, expandable Today/Tomorrow
+agendas, two 12-hour timeline rows per day, the DTEK schedule timestamp, and the
+latest successful API check.
+
+<details>
+  <summary>🖼 <strong>Screenshots</strong></summary>
+
+<h3>No outages</h3>
+
+![Calendar](docs/images/1-no-outages.png)
+
+<h3>2-day schedule</h3>
+
+![Calendar](docs/images/2-two-day-schedule.png)
+
+<h3>2-day schedule (with opened agenda)</h3>
+
+![Calendar](docs/images/3-two-day-schedule-agenda-open.png)
+
+<h3>2-day schedule in dark mode (with opened agenda)</h3>
+
+![Calendar](docs/images/4-two-day-schedule-agenda-open-dark-mode.png)
+
+<h3>Dense schedule</h3>
+
+![Calendar](docs/images/5-dense-schedule-custom-text.png)
+
+<h3>Special outage status</h3>
+
+![Calendar](docs/images/6-special-outage.png)
+</details>
+
+Copy the JavaScript file to `/config/www/dtek-outage-card.js`, then register
+`/local/dtek-outage-card.js` as a JavaScript module under **Settings →
+Dashboards → Resources**. YAML-managed resources can register it directly:
+
+```yaml
+lovelace:
+  resources:
+    - url: /local/dtek-outage-card.js
+      type: module
+```
+
+The smallest card configuration uses the default sensor:
+
+```yaml
+type: custom:dtek-outage-card
+```
+
+The sensor and requested heading/empty-state settings can be overridden:
+
+```yaml
+type: custom:dtek-outage-card
+entity: sensor.dtek_outage_schedule
+title: Outages
+icon: mdi:calendar-today-outline
+group_icon: mdi:human-queue
+no_outages_text: Not planned
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `entity` | `sensor.dtek_outage_schedule` | REST sensor containing the DTEK response attributes. |
+| `title` | Localized `Outages` | Heading text. |
+| `icon` | `mdi:calendar-today-outline` | Heading icon. |
+| `group_icon` | `mdi:human-queue` | Icon beside the group. Set it to an empty string to hide the icon. |
+| `no_outages_text` | Localized `Not planned` | Text shown when no planned or special outage exists. |
+| `testing_config` | — | Development-only sensor attributes for previewing the card without live data. |
+
+English and Ukrainian labels are built in. For a manual preview, provide the
+same attributes that normally come from the REST sensor:
+
+```yaml
+type: custom:dtek-outage-card
+testing_config:
+  group: "1.1"
+  updated_at: "2026-10-09T16:00:00+03:00"
+  checked_at: "2026-10-09T16:03:00+03:00"
+  events:
+    - start: "2026-10-09T18:00:00+03:00"
+      end: "2026-10-09T20:30:00+03:00"
+    - start: "2026-10-10T06:00:00+03:00"
+      end: "2026-10-10T08:00:00+03:00"
+  shutdown:
+    reason: Екстрені відключення
+    updated_at: "2026-10-09T15:55:00+03:00"
+    started_at: "2026-10-09T16:00:00+03:00"
+    ends_at: "2026-10-09T17:00:00+03:00"
+```
+
+#### DTEK schedule notifications
 
 The REST request sends the sensor's current fingerprint back to the API. Home
 Assistant only stores that opaque value; the API decodes it and returns the two

@@ -269,7 +269,7 @@ export function optionIndex(options, requested) {
 }
 
 async function fillAutocomplete(page, name, value) {
-  const input = `input[name="${name}"]`
+  const input = `#discon_form input[name="${name}"]`
   const selector = `${input} ~ .autocomplete-items > div`
 
   await new Promise((resolve) => setTimeout(resolve, 50))

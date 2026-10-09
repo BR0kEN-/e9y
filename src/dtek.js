@@ -11,6 +11,7 @@ const FINGERPRINT_VERSION = 1
 const FINGERPRINT_DATE = /^\d{4}-\d{2}-\d{2}$/
 const FINGERPRINT_HASH = /^[a-f0-9]{64}$/
 const preparedDtekPages = new WeakMap()
+const interceptedDtekPages = new WeakSet()
 
 function formatDate(input) {
   const [date, time] = input.toLocaleString(process.env.LOCALE, { timeZone: process.env.TZ }).split(', ')
@@ -269,24 +270,37 @@ export function optionIndex(options, requested) {
   return suffix >= 0 ? suffix : 0
 }
 
-async function prepareDtekPage(page, address) {
+async function prepareDtekPage(page, address, pageTtl, debug) {
   const domain = `dtek-${address.region}.com.ua`
   const baseUrl = `https://www.${domain}`
+  const prepared = preparedDtekPages.get(page)
+  const age = prepared ? Date.now() - prepared.loadedAt : null
 
-  if (preparedDtekPages.get(page) === address.region) {
+  if (prepared?.region === address.region && age < pageTtl) {
+    debug('reusing regional page')
     return
   }
 
-  await page.setRequestInterception(true)
-  page.on('request', (request) => {
-    const action = BLOCKED_RESOURCE_TYPES.has(request.resourceType()) || !request.url().startsWith(baseUrl)
-      ? request.abort('blockedbyclient')
-      : request.continue()
-    action.catch(() => {})
-  })
+  if (!interceptedDtekPages.has(page)) {
+    await page.setRequestInterception(true)
+    page.on('request', (request) => {
+      const action = BLOCKED_RESOURCE_TYPES.has(request.resourceType()) || !request.url().startsWith(baseUrl)
+        ? request.abort('blockedbyclient')
+        : request.continue()
+      action.catch(() => {})
+    })
+    interceptedDtekPages.add(page)
+  }
 
+  if (prepared?.region === address.region) {
+    debug(`regional page TTL expired after ${Math.round(age / 1000)}s; refreshing`)
+  }
+
+  debug('regional navigation started')
   await page.goto(`${baseUrl}/ua/shutdowns`, { waitUntil: 'domcontentloaded' })
+  debug('regional DOM loaded')
   // Handle `Сайт працює, але через велике навантаження треба трохи зачекати і сторінка завантажиться.`.
+  debug('waiting for regional schedule')
   await page.waitForFunction(() => (
     typeof DisconSchedule !== 'undefined'
       && Boolean(DisconSchedule.fact)
@@ -294,8 +308,9 @@ async function prepareDtekPage(page, address) {
       && Boolean(DisconSchedule.streets)
       && Boolean(document.querySelector('#discon_form'))
   ), { timeout: 120_000 })
+  debug('regional schedule ready')
 
-  preparedDtekPages.set(page, address.region)
+  preparedDtekPages.set(page, { region: address.region, loadedAt: Date.now() })
 }
 
 async function queryDtekAddress(page, address, timeout) {
@@ -414,9 +429,11 @@ function addressDetails(response, address) {
   return { data, group, groupKey }
 }
 
-export async function collectDtek(page, address, timeout) {
-  await prepareDtekPage(page, address)
+export async function collectDtek(page, address, timeout, pageTtl = 900_000, debug = () => {}) {
+  await prepareDtekPage(page, address, pageTtl, debug)
+  debug('address AJAX started')
   const response = await queryDtekAddress(page, address, timeout)
+  debug('address AJAX completed')
   const { data, group, groupKey } = addressDetails(response, address)
   const days = response.schedule.days.map(({ timestamp, groups }) => ({
     timestamp,

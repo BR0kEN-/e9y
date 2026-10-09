@@ -5,9 +5,39 @@ import {
   buildDtekStatus,
   buildIcs,
   buildIntervals,
+  collectDtek,
   decodeDtekFingerprint,
   optionIndex,
 } from '../src/dtek.js'
+
+test('regional DTEK page is reused until its TTL expires', async () => {
+  const calls = { interception: 0, listeners: 0, navigation: 0 }
+  const page = {
+    async setRequestInterception() { calls.interception += 1 },
+    on(event) { if (event === 'request') calls.listeners += 1 },
+    async goto() { calls.navigation += 1 },
+    async waitForFunction() {},
+    async evaluate() {
+      return {
+        data: { 75: { sub_type_reason: 'GPV1.1' } },
+        updateTimestamp: null,
+        schedule: { updated_at: '24.07.2026 08:30', days: [] },
+      }
+    },
+  }
+  const address = {
+    region: 'dnem',
+    locality: 'Братське',
+    street: 'Авіаційна',
+    building: '75',
+  }
+
+  await collectDtek(page, address, 30_000, 900_000)
+  await collectDtek(page, address, 30_000, 900_000)
+  await collectDtek(page, address, 30_000, 0)
+
+  assert.deepEqual(calls, { interception: 1, listeners: 1, navigation: 2 })
+})
 
 test('selects the exact locality instead of the first partial autocomplete match', () => {
   const options = [

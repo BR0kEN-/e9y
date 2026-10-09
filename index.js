@@ -27,6 +27,19 @@ function integer(name, fallback) {
   return value
 }
 
+function boolean(name, fallback) {
+  const raw = process.env[name]
+
+  if (raw === undefined) {
+    return fallback
+  }
+
+  const value = raw.trim().toLowerCase()
+  if (['1', 'true', 'yes', 'on'].includes(value)) return true
+  if (['0', 'false', 'no', 'off'].includes(value)) return false
+  throw new Error(`${name} must be a boolean`)
+}
+
 function query(request, name) {
   const value = request.query[name]
 
@@ -68,18 +81,31 @@ function setCacheHeaders(response, cached) {
   })
 }
 
+const debug = boolean('DEBUG', false)
 const config = {
   host: process.env.HOST || '0.0.0.0',
   port: integer('PORT', 8085),
   navigationTimeout: integer('PUPPETEER_NAVIGATION_TIMEOUT_MS', 30_000),
+  dtekPageTtl: integer('DTEK_PAGE_TTL_SECONDS', 900) * 1000,
+  headless: boolean('PUPPETEER_HEADLESS', true),
+  bypassCache: boolean('BYPASS_CACHE', false),
+  debug,
   dtekCookies: loadDtekCookies(),
-  username: required('BASIC_AUTH_USERNAME'),
-  password: required('BASIC_AUTH_PASSWORD'),
+  username: debug ? null : required('BASIC_AUTH_USERNAME'),
+  password: debug ? null : required('BASIC_AUTH_PASSWORD'),
 }
-const dtekCache = new Cache(integer('DTEK_CACHE_TTL_SECONDS', 180) * 1000)
-const nercCache = new Cache(integer('NERC_CACHE_TTL_SECONDS', 86_400) * 1000)
+const dtekCache = new Cache(
+  integer('DTEK_CACHE_TTL_SECONDS', 180) * 1000,
+  Date.now,
+  config.bypassCache,
+)
+const nercCache = new Cache(
+  integer('NERC_CACHE_TTL_SECONDS', 86_400) * 1000,
+  Date.now,
+  config.bypassCache,
+)
 const browser = await puppeteer.launch({
-  headless: 'shell',
+  headless: config.headless ? 'shell' : false,
   executablePath: required('PUPPETEER_EXECUTABLE_PATH'),
   args: [
     '--no-sandbox',
@@ -161,14 +187,34 @@ async function withDtekPage(region, callback) {
 }
 
 const app = express()
-app.use(basicAuth(config.username, config.password))
+if (config.debug) {
+  console.info('Debug mode enabled; HTTP Basic Auth is disabled')
+} else {
+  app.use(basicAuth(config.username, config.password))
+}
 
 async function loadDtek(address) {
-  return withDtekPage(address.region, (page) => collectDtek(
-    page,
-    address,
-    config.navigationTimeout,
-  ))
+  const prefix = `DTEK ${address.region} ${address.locality}, ${address.street} ${address.building}`
+  const debugDtek = config.debug
+    ? (message) => console.info(`${prefix}: ${message}`)
+    : () => {}
+  const started = Date.now()
+
+  debugDtek('lookup started')
+  try {
+    const result = await withDtekPage(address.region, (page) => collectDtek(
+      page,
+      address,
+      config.navigationTimeout,
+      config.dtekPageTtl,
+      debugDtek,
+    ))
+    debugDtek(`lookup completed in ${Date.now() - started}ms`)
+    return result
+  } catch (error) {
+    debugDtek(`lookup failed after ${Date.now() - started}ms: ${error.message}`)
+    throw error
+  }
 }
 
 async function getDtek(request) {
@@ -187,6 +233,10 @@ async function getDtek(request) {
 
   const key = JSON.stringify(Object.values(address).map((value) => value.toLocaleLowerCase('uk-UA')))
   const cached = await dtekCache.get(key, () => loadDtek(address))
+
+  if (config.debug) {
+    console.info(`DTEK ${address.region} cache status: ${cached.status}`)
+  }
 
   if (cached.error) {
     console.error('DTEK failed; serving the last result', cached.error)
@@ -213,10 +263,26 @@ app.get('/dtek/shutdowns.json', async (request, response) => {
 app.get('/nerc/green-tariff-price', async (request, response) => {
   const date = query(request, 'date')
   const targetTimestamp = dateToTimestamp(date)
+  const debugNerc = config.debug
+    ? (message) => console.info(`NERC: ${message}`)
+    : () => {}
+  const started = Date.now()
   const cached = await nercCache.get(
     NERC_CACHE_KEY,
-    () => withIsolatedPage((page) => checkNerc(page)),
+    async () => {
+      debugNerc('lookup started')
+      try {
+        const result = await withIsolatedPage((page) => checkNerc(page, debugNerc))
+        debugNerc(`lookup completed in ${Date.now() - started}ms`)
+        return result
+      } catch (error) {
+        debugNerc(`lookup failed after ${Date.now() - started}ms: ${error.message}`)
+        throw error
+      }
+    },
   )
+
+  debugNerc(`cache status: ${cached.status}`)
 
   if (cached.error) {
     console.error('NERC failed; serving the last result', cached.error)

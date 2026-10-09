@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "node index.js",
+    "start:local": "node --env-file=.env index.js",
     "test": "TZ=Europe/Kyiv node --test"
   },
   "dependencies": {

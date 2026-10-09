@@ -30,7 +30,8 @@ installations commissioned on different dates.
 - Finds the latest NERC green-tariff decree, reads all of its date ranges, and
   returns the price that applies to the requested commissioning date.
 - Loads one browser page per DTEK region, keeps its cookies and regional
-  schedule state, and resolves later addresses through DTEK's AJAX endpoint.
+  schedule state, refreshes it periodically, and resolves later addresses
+  through DTEK's AJAX endpoint.
 - Caches DTEK data per address and the NERC tariff table once for all dates, so
   repeated requests do not open unnecessary browser sessions.
 - Includes Home Assistant examples for REST sensors and notifications when a
@@ -62,6 +63,36 @@ run on macOS 12 Monterey. `npm install` and `npm ci` never download a browser;
 the separate command above performs that explicit download.
 
 The service listens on `0.0.0.0:8085` by default.
+
+### Local browser debugging
+
+Create a local `.env` and start the service with it:
+
+```sh
+cp .env.example .env
+npm run start:local
+```
+
+To watch the DTEK page and see which stage is taking time, set:
+
+```text
+PUPPETEER_HEADLESS=false
+DEBUG=true
+BYPASS_CACHE=true
+```
+
+`PUPPETEER_HEADLESS=false` opens the configured full Chrome executable.
+`DEBUG=true` disables HTTP Basic Auth and logs DTEK and NERC crawler stages,
+completion times, and cache status. Use it only while binding the service to a
+trusted interface such as `127.0.0.1`.
+`BYPASS_CACHE=true` disables DTEK and NERC cache hits, in-flight request
+sharing, and stale fallback; every request reaches its upstream source and
+responds with `X-Cache: BYPASS`.
+
+The persistent DTEK browser page and its cookies remain alive in bypass mode.
+They are the upstream session, not a data cache: every DTEK request still makes
+a live address AJAX request. This makes it possible to reproduce a bad address
+without throwing away the working browser session between requests.
 
 ## Usage
 
@@ -508,6 +539,7 @@ actions:
 
 ```text
 DTEK_CACHE_TTL_SECONDS=180
+DTEK_PAGE_TTL_SECONDS=900
 NERC_CACHE_TTL_SECONDS=86400
 ```
 
@@ -515,10 +547,12 @@ DTEK results are cached per normalized address. `previous_fingerprint` is not
 part of that cache key; its comparison is applied after reading the cached schedule.
 Addresses in the same region share one persistent browser page, refreshed DTEK
 cookies, and the page's complete schedule for all groups. After that page is
-loaded, an expired address entry performs only the lightweight address AJAX
-lookup; it does not navigate or reload the DTEK page. These AJAX lookups run one
-at a time on the shared page. The page is recreated after a failed lookup, while
-the browser context and its cookies remain alive.
+loaded, an expired address entry normally performs only the lightweight address
+AJAX lookup. These AJAX lookups run one at a time on the shared page. The first
+uncached lookup after `DTEK_PAGE_TTL_SECONDS` reloads the regional page, bounding
+stale regional data even if DTEK's conditional AJAX refresh does not detect a
+change. All addresses then reuse that refreshed page. The page is recreated
+after a failed lookup, while the browser context and its cookies remain alive.
 NERC has one cache entry for the current decree and its complete tariff table,
 so all commissioning dates reuse the same crawl. Concurrent misses share the
 in-flight crawl. If a refresh fails, the last successful value is served with
@@ -562,5 +596,5 @@ repository does not configure or manage that tunnel.
 ```sh
 npm install
 npm test
-BASIC_AUTH_USERNAME=dev BASIC_AUTH_PASSWORD=dev npm start
+npm run start:local
 ```

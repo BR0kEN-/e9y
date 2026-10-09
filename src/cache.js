@@ -1,12 +1,21 @@
 export class Cache {
-  constructor(ttl, now = Date.now) {
+  constructor(ttl, now = Date.now, bypass = false) {
     this.ttl = ttl
     this.now = now
+    this.bypass = bypass
     this.entries = new Map()
     this.pending = new Map()
   }
 
   async get(key, loader) {
+    if (this.bypass) {
+      return {
+        value: await loader(),
+        fetchedAt: this.now(),
+        status: 'bypass',
+      }
+    }
+
     const now = this.now()
     const entry = this.entries.get(key)
 

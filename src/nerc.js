@@ -125,7 +125,7 @@ export function findGreenTariffByDate(tariffs, targetTimestamp) {
   return matching.tariff
 }
 
-export async function checkNerc(page) {
+export async function checkNerc(page, debug = () => {}) {
   await page.setRequestInterception(true)
   page.on('request', (request) => {
     const action = BLOCKED_RESOURCE_TYPES.has(request.resourceType())
@@ -145,12 +145,15 @@ export async function checkNerc(page) {
 
   let currentDecree
   let currentPage = -1
+  debug('search navigation started')
   let response = await waitForSearchResponse(
     () => page.goto(`${TARGET_URL}/npasearch?&key=${encodeURIComponent(DECREE_TITLE)}`),
   )
+  debug('search response received')
 
   while (true) {
     const { data, current_page, next_page_url } = await response.json()
+    debug(`search page ${current_page} parsed`)
 
     if (current_page === currentPage) {
       throw new Error('Navigation did not happen!')
@@ -168,6 +171,7 @@ export async function checkNerc(page) {
     }
 
     currentPage = current_page
+    debug('loading next search page')
     response = await waitForSearchResponse(
       () => page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)),
     )
@@ -176,6 +180,8 @@ export async function checkNerc(page) {
   if (!currentDecree) {
     throw new Error('Cannot find a decree!')
   }
+
+  debug(`decree ${currentDecree.no || 'unknown'} found`)
 
   if (
     !currentDecree.no
@@ -186,8 +192,11 @@ export async function checkNerc(page) {
     throw new Error('Unexpected response!')
   }
 
+  const tariffs = parseGreenTariffs(currentDecree.html_content)
+  debug(`tariff table parsed (${tariffs.length} ranges)`)
+
   return {
-    tariffs: parseGreenTariffs(currentDecree.html_content),
+    tariffs,
     decree: {
       id: currentDecree.no,
       url: currentDecree.url,

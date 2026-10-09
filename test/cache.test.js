@@ -46,6 +46,24 @@ test('Cache serves the previous value when refresh fails', async () => {
   assert.match(stale.error.message, /upstream down/)
 })
 
+test('Cache bypass loads every request and never serves stale data', async () => {
+  let loads = 0
+  const cache = new Cache(100, Date.now, true)
+  const loader = async () => {
+    loads += 1
+    return loads
+  }
+
+  const first = await cache.get('key', loader)
+
+  assert.equal(first.value, 1)
+  assert.equal(first.status, 'bypass')
+  assert.equal(typeof first.fetchedAt, 'number')
+  assert.equal((await cache.get('key', loader)).value, 2)
+  assert.equal(loads, 2)
+  await assert.rejects(cache.get('key', async () => { throw new Error('live failure') }), /live failure/)
+})
+
 test('one NERC cache key serves lookups for different commissioning dates', async () => {
   let loads = 0
   const cache = new Cache(100)

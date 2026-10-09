@@ -320,20 +320,9 @@ function waitForDetails(page, timeout) {
   return { promise, cancel }
 }
 
-export async function collectDtek(page, context, address, cookies, timeout) {
+export async function collectDtek(page, address, timeout) {
   const domain = `dtek-${address.region}.com.ua`
   const baseUrl = `https://www.${domain}`
-
-  if (cookies.length) {
-    await context.setCookie(...cookies.map(({ name, value }) => ({
-      name,
-      value,
-      domain: `.${domain}`,
-      secure: true,
-      httpOnly: true,
-      sameSite: 'None',
-    })))
-  }
 
   await page.setRequestInterception(true)
   page.on('request', (request) => {

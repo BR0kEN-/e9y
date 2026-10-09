@@ -89,8 +89,9 @@ const browser = await puppeteer.launch({
     '--window-size=1920,1080',
   ],
 })
+const dtekSessions = new Map()
 
-async function withPage(callback) {
+async function withIsolatedPage(callback) {
   const context = await browser.createBrowserContext()
 
   try {
@@ -102,15 +103,66 @@ async function withPage(callback) {
   }
 }
 
+async function createDtekSession(region) {
+  const context = await browser.createBrowserContext()
+  const cookies = config.dtekCookies[region] || []
+
+  try {
+    if (cookies.length) {
+      const domain = `.dtek-${region}.com.ua`
+      await context.setCookie(...cookies.map(({ name, value }) => ({
+        name,
+        value,
+        domain,
+        secure: true,
+        httpOnly: true,
+        sameSite: 'None',
+      })))
+    }
+  } catch (error) {
+    await context.close().catch(() => {})
+    throw error
+  }
+
+  return { context, tail: Promise.resolve() }
+}
+
+function getDtekSession(region) {
+  if (!dtekSessions.has(region)) {
+    const session = createDtekSession(region).catch((error) => {
+      dtekSessions.delete(region)
+      throw error
+    })
+    dtekSessions.set(region, session)
+  }
+
+  return dtekSessions.get(region)
+}
+
+async function withDtekPage(region, callback) {
+  const session = await getDtekSession(region)
+  const job = session.tail.then(async () => {
+    const page = await session.context.newPage()
+
+    try {
+      page.setDefaultNavigationTimeout(config.navigationTimeout)
+      return await callback(page)
+    } finally {
+      await page.close().catch(() => {})
+    }
+  })
+
+  session.tail = job.catch(() => {})
+  return job
+}
+
 const app = express()
 app.use(basicAuth(config.username, config.password))
 
 async function loadDtek(address) {
-  return withPage((page, context) => collectDtek(
+  return withDtekPage(address.region, (page) => collectDtek(
     page,
-    context,
     address,
-    config.dtekCookies[address.region] || [],
     config.navigationTimeout,
   ))
 }
@@ -159,7 +211,7 @@ app.get('/nerc/green-tariff-price', async (request, response) => {
   const targetTimestamp = dateToTimestamp(date)
   const cached = await nercCache.get(
     NERC_CACHE_KEY,
-    () => withPage((page) => checkNerc(page)),
+    () => withIsolatedPage((page) => checkNerc(page)),
   )
 
   if (cached.error) {

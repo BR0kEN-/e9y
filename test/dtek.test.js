@@ -5,6 +5,7 @@ import {
   buildDtekStatus,
   buildIcs,
   buildIntervals,
+  decodeDtekFingerprint,
   optionIndex,
 } from '../src/dtek.js'
 
@@ -80,10 +81,14 @@ test('buildDtekStatus hashes today and tomorrow independently', () => {
   assert.equal(status.tomorrow.has_outages, true)
   assert.match(status.today.hash, /^[a-f0-9]{64}$/)
   assert.match(status.tomorrow.hash, /^[a-f0-9]{64}$/)
-  assert.match(status.fingerprint, /^[a-f0-9]{64}$/)
+  assert.match(status.fingerprint, /^[A-Za-z0-9_-]+$/)
+  assert.ok(status.fingerprint.length <= 255)
+  assert.deepEqual(decodeDtekFingerprint(status.fingerprint), [status.today, status.tomorrow])
+  assert.equal(status.schedule_changed, false)
+  assert.equal(status.tomorrow_became_available, false)
 })
 
-test('buildDtekStatus has a stable hash for an empty schedule', () => {
+test('buildDtekStatus has a stable fingerprint for an empty schedule', () => {
   const data = {
     group: 1.1,
     schedule: {
@@ -137,6 +142,80 @@ test('buildDtekStatus canonicalizes reordered and overlapping events', () => {
       },
     ],
   )
+})
+
+test('buildDtekStatus compares a client fingerprint without false rollover changes', () => {
+  const data = {
+    group: 1.1,
+    shutdown: null,
+    schedule: {
+      updated_at: new Date('2026-01-01T10:00:00Z'),
+      events: [{
+        start: new Date('2026-01-02T08:00:00+02:00'),
+        end: new Date('2026-01-02T10:00:00+02:00'),
+      }],
+    },
+  }
+  const previous = buildDtekStatus(data, new Date('2026-01-01T12:00:00+02:00'))
+  const current = buildDtekStatus(
+    data,
+    new Date('2026-01-02T00:01:00+02:00'),
+    previous.fingerprint,
+  )
+
+  assert.equal(current.schedule_changed, false)
+  assert.equal(current.tomorrow_became_available, false)
+})
+
+test('buildDtekStatus detects a new tomorrow schedule from a client fingerprint', () => {
+  const data = (events) => ({
+    group: 1.1,
+    shutdown: null,
+    schedule: {
+      updated_at: new Date('2026-01-01T10:00:00Z'),
+      events,
+    },
+  })
+  const now = new Date('2026-01-01T12:00:00+02:00')
+  const previous = buildDtekStatus(data([]), now)
+  const current = buildDtekStatus(data([{
+    start: new Date('2026-01-02T08:00:00+02:00'),
+    end: new Date('2026-01-02T10:00:00+02:00'),
+  }]), now, previous.fingerprint)
+
+  assert.equal(current.schedule_changed, true)
+  assert.equal(current.tomorrow_became_available, true)
+
+  const unchanged = buildDtekStatus(data([{
+    start: new Date('2026-01-02T08:00:00+02:00'),
+    end: new Date('2026-01-02T10:00:00+02:00'),
+  }]), now, current.fingerprint)
+
+  assert.equal(unchanged.schedule_changed, false)
+  assert.equal(unchanged.tomorrow_became_available, false)
+
+  const removed = buildDtekStatus(data([]), now, current.fingerprint)
+  assert.equal(removed.schedule_changed, true)
+  assert.equal(removed.tomorrow_became_available, false)
+})
+
+test('buildDtekStatus ignores a missing or invalid client fingerprint', () => {
+  const data = {
+    group: 1.1,
+    shutdown: null,
+    schedule: {
+      updated_at: new Date('2026-01-01T10:00:00Z'),
+      events: [{
+        start: new Date('2026-01-02T08:00:00+02:00'),
+        end: new Date('2026-01-02T10:00:00+02:00'),
+      }],
+    },
+  }
+  const status = buildDtekStatus(data, new Date('2026-01-01T12:00:00+02:00'), 'invalid')
+
+  assert.equal(status.schedule_changed, false)
+  assert.equal(status.tomorrow_became_available, false)
+  assert.equal(decodeDtekFingerprint('invalid'), null)
 })
 
 test('buildDtekStatus exposes the next outage and connectivity transitions', () => {

@@ -7,6 +7,9 @@ const DATE_FORMATTER = new Intl.DateTimeFormat('en-CA', {
   month: '2-digit',
   day: '2-digit',
 })
+const FINGERPRINT_VERSION = 1
+const FINGERPRINT_DATE = /^\d{4}-\d{2}-\d{2}$/
+const FINGERPRINT_HASH = /^[a-f0-9]{64}$/
 
 function formatDate(input) {
   const [date, time] = input.toLocaleString(process.env.LOCALE, { timeZone: process.env.TZ }).split(', ')
@@ -147,17 +150,99 @@ function serializeEvents(events) {
     }))
 }
 
-export function buildDtekStatus(data, now = new Date()) {
+export function encodeDtekFingerprint(days) {
+  const payload = [
+    FINGERPRINT_VERSION,
+    days.map(({ date, hash, has_outages: hasOutages }) => [
+      date,
+      hash,
+      hasOutages ? 1 : 0,
+    ]),
+  ]
+
+  return Buffer.from(JSON.stringify(payload)).toString('base64url')
+}
+
+export function decodeDtekFingerprint(fingerprint) {
+  if (typeof fingerprint !== 'string' || !fingerprint || fingerprint.length > 255) {
+    return null
+  }
+
+  try {
+    const payload = JSON.parse(Buffer.from(fingerprint, 'base64url').toString())
+
+    if (
+      !Array.isArray(payload)
+      || payload.length !== 2
+      || payload[0] !== FINGERPRINT_VERSION
+      || !Array.isArray(payload[1])
+      || payload[1].length !== 2
+    ) {
+      return null
+    }
+
+    const days = payload[1].map((day) => {
+      if (
+        !Array.isArray(day)
+        || day.length !== 3
+        || typeof day[0] !== 'string'
+        || !FINGERPRINT_DATE.test(day[0])
+        || typeof day[1] !== 'string'
+        || !FINGERPRINT_HASH.test(day[1])
+        || (day[2] !== 0 && day[2] !== 1)
+      ) {
+        throw new TypeError('Invalid DTEK fingerprint')
+      }
+
+      return {
+        date: day[0],
+        hash: day[1],
+        has_outages: day[2] === 1,
+      }
+    })
+
+    return new Set(days.map(({ date }) => date)).size === days.length ? days : null
+  } catch {
+    return null
+  }
+}
+
+function compareDtekFingerprint(days, previousFingerprint) {
+  const previousDays = decodeDtekFingerprint(previousFingerprint)
+
+  if (!previousDays) {
+    return {
+      schedule_changed: false,
+      tomorrow_became_available: false,
+    }
+  }
+
+  const previousByDate = new Map(previousDays.map((day) => [day.date, day]))
+  const scheduleChanged = days.some((day) => {
+    const previous = previousByDate.get(day.date)
+    return previous ? previous.hash !== day.hash : day.has_outages
+  })
+  const tomorrow = days[1]
+  const previousTomorrow = previousByDate.get(tomorrow.date)
+
+  return {
+    schedule_changed: scheduleChanged,
+    tomorrow_became_available: tomorrow.has_outages
+      && (!previousTomorrow || !previousTomorrow.has_outages),
+  }
+}
+
+export function buildDtekStatus(data, now = new Date(), previousFingerprint = null) {
   const todayDate = localDate(now)
   const today = scheduleDay(todayDate, data.schedule.events)
   const tomorrow = scheduleDay(addCalendarDays(todayDate, 1), data.schedule.events)
+  const days = [today, tomorrow]
   const transitions = nextTransitions(data.schedule.events, now)
-  const fingerprint = createHash('sha256')
-    .update(JSON.stringify([today, tomorrow]))
-    .digest('hex')
+  const fingerprint = encodeDtekFingerprint(days)
 
   return {
     fingerprint,
+    ...compareDtekFingerprint(days, previousFingerprint),
     group: data.group,
     updated_at: data.schedule.updated_at.toISOString(),
     events: serializeEvents(data.schedule.events),

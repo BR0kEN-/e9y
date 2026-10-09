@@ -34,6 +34,11 @@ function query(request, name) {
   return value.trim().replace(/\s+/g, ' ')
 }
 
+function optionalQuery(request, name) {
+  const value = request.query[name]
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
 function required(name) {
   const value = process.env[name]?.trim()
 
@@ -138,9 +143,10 @@ app.get('/dtek/shutdowns.ics', async (request, response) => {
 
 app.get('/dtek/shutdowns.json', async (request, response) => {
   const { cached } = await getDtek(request)
+  const previousFingerprint = optionalQuery(request, 'previous_fingerprint')
 
   setCacheHeaders(response, cached)
-  response.json(buildDtekStatus(cached.value))
+  response.json(buildDtekStatus(cached.value, new Date(), previousFingerprint))
 })
 
 app.get('/nerc/green-tariff-price', async (request, response) => {

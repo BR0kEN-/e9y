@@ -24,8 +24,9 @@ installations commissioned on different dates.
   calendar clients.
 - Reports the next outage, next power restoration, current outage reason, and
   the reason's start and end times.
-- Provides separate hashes for today's and tomorrow's schedules. The included
-  Home Assistant automation uses them without sending a false midnight alert.
+- Returns a compact fingerprint that Home Assistant sends back on the next poll.
+  The API compares it without storing per-address notification state or sending
+  a false midnight alert.
 - Finds the latest NERC green-tariff decree, reads all of its date ranges, and
   returns the price that applies to the requested commissioning date.
 - Retries a failed DTEK crawl once in a fresh browser context, then falls back
@@ -109,13 +110,22 @@ GET /dtek/shutdowns.json?region=dnem&locality=Дніпро&street=шосе За�
 GET /dtek/shutdowns.ics?region=dnem&locality=Дніпро&street=шосе Запорізьке&building=80
 ```
 
-URL-encode all query values when constructing the real URLs. The JSON response
-contains stable hashes for the Kyiv calendar dates represented by `today` and
-`tomorrow`:
+The JSON endpoint also accepts the opaque fingerprint returned by its previous
+response:
+
+```text
+GET /dtek/shutdowns.json?...&previous_fingerprint=<FINGERPRINT>
+```
+
+URL-encode all query values when constructing the real URLs. The response
+contains the replacement fingerprint, comparison results, and stable hashes for
+the Kyiv calendar dates represented by `today` and `tomorrow`:
 
 ```json
 {
   "fingerprint": "...",
+  "schedule_changed": false,
+  "tomorrow_became_available": false,
   "group": 1.1,
   "updated_at": "2026-10-07T09:00:00.000Z",
   "events": [
@@ -147,14 +157,17 @@ contains stable hashes for the Kyiv calendar dates represented by `today` and
 
 `events` contains the ordered outage intervals used by dashboards and
 automations. `next_outage`, `next_connectivity`, and `shutdown` are `null` when
-no matching transition or current shutdown exists. The ICS response remains
-available as an optional read-only calendar feed.
+no matching transition or current shutdown exists. A missing, invalid, or
+unsupported `previous_fingerprint` makes both comparison results `false`; the
+new fingerprint returned by the same response repairs the next request. The ICS
+response remains available as an optional read-only calendar feed.
 
 ### Home Assistant
 
 The following is guidance to copy into each HA instance and customize. Replace
-the URL-encoded address, commissioning date, entity suffixes, and
-`notify.notify_all` for that instance.
+the address placeholders, commissioning date, entity suffixes, and
+`notify.notify_all` for that instance. Home Assistant URL-encodes the `params`
+values.
 
 Add the credentials to `secrets.yaml`:
 
@@ -173,7 +186,13 @@ rest:
   ## <CITY>: Дніпро
   ## <STREET>: шосе Запорізьке
   ## <BLD>: 80
-  - resource: "https://grid-data.example.com/dtek/shutdowns.json?region=<REGION>&locality=<CITY>&street=<STREET>&building=<BLD>"
+  - resource: "https://grid-data.example.com/dtek/shutdowns.json"
+    params:
+      region: "<REGION>"
+      locality: "<CITY>"
+      street: "<STREET>"
+      building: "<BLD>"
+      previous_fingerprint: "{{ states('sensor.dtek_outage_schedule') }}"
     timeout: 160
     scan_interval: 180
     authentication: basic
@@ -184,6 +203,8 @@ rest:
         unique_id: dtek_outage_schedule
         value_template: "{{ value_json.fingerprint }}"
         json_attributes:
+          - schedule_changed
+          - tomorrow_became_available
           - group
           - events
           - updated_at
@@ -216,74 +237,33 @@ attributes of the same entity for dashboard and automation use. Read them with
 `state_attr('sensor.dtek_outage_schedule', 'next_connectivity')`, and
 `state_attr('sensor.dtek_outage_schedule', 'shutdown')`.
 
-Add the outage automation below. It compares the entity's previous and current
-attributes by actual calendar date, so tomorrow becoming today does not create
-a rollover notification. A new nonempty tomorrow schedule sends both the
-general schedule-change notification and the separate tomorrow-available
-notification. `has_value` rejects a missing, `unknown`, or `unavailable`
-current sensor value; an initial update without previous schedule attributes is
-ignored.
+The REST request sends the sensor's current fingerprint back to the API. Home
+Assistant only stores that opaque value; the API decodes it and returns the two
+notification flags. No helper entity is needed. When both flags are true, the
+more specific tomorrow-available message takes priority. The shared
+`notification` variable keeps the delivery actions reusable.
 
 ```yaml
-alias: e9y API - DTEK schedule notifications
 mode: queued
+alias: e9y API - DTEK schedule notifications
 triggers:
   - platform: state
     entity_id: sensor.dtek_outage_schedule
 conditions:
   - condition: template
-    value_template: >-
-      {{ trigger.from_state is not none
-         and has_value(trigger.entity_id)
-         and trigger.from_state.attributes.today is mapping
-         and trigger.from_state.attributes.tomorrow is mapping
-         and trigger.to_state.attributes.today is mapping
-         and trigger.to_state.attributes.tomorrow is mapping }}
-variables:
-  previous_today: "{{ trigger.from_state.attributes.today }}"
-  previous_tomorrow: "{{ trigger.from_state.attributes.tomorrow }}"
-  today: "{{ trigger.to_state.attributes.today }}"
-  tomorrow: "{{ trigger.to_state.attributes.tomorrow }}"
-  previous_today_hash: >-
-    {% if previous_today.date == today.date %}{{ previous_today.hash }}
-    {% elif previous_tomorrow.date == today.date %}{{ previous_tomorrow.hash }}
-    {% else %}{{ '' }}{% endif %}
-  previous_tomorrow_hash: >-
-    {% if previous_today.date == tomorrow.date %}{{ previous_today.hash }}
-    {% elif previous_tomorrow.date == tomorrow.date %}{{ previous_tomorrow.hash }}
-    {% else %}{{ '' }}{% endif %}
-  previous_tomorrow_outages: >-
-    {% if previous_today.date == tomorrow.date %}{{ previous_today.has_outages }}
-    {% elif previous_tomorrow.date == tomorrow.date %}{{ previous_tomorrow.has_outages }}
-    {% else %}{{ false }}{% endif %}
-  today_changed: >-
-    {{ (previous_today_hash != '' and previous_today_hash != today.hash)
-       or (previous_today_hash == '' and today.has_outages) }}
-  tomorrow_changed: >-
-    {{ (previous_tomorrow_hash != '' and previous_tomorrow_hash != tomorrow.hash)
-       or (previous_tomorrow_hash == '' and tomorrow.has_outages) }}
-  tomorrow_available: >-
-    {{ tomorrow.has_outages and
-       (previous_tomorrow_hash == '' or not (previous_tomorrow_outages | bool)) }}
-  affected_days: >-
-    {% set days = [] %}
-    {% if today_changed | bool %}{% set days = days + ['today'] %}{% endif %}
-    {% if tomorrow_changed | bool %}{% set days = days + ['tomorrow'] %}{% endif %}
-    {{ days | join(' and ') }}
+    value_template: "{{ trigger.to_state is not none and has_value(trigger.entity_id) }}"
 actions:
   - choose:
       - conditions:
           - condition: template
-            value_template: >-
-              {{ today_changed | bool or tomorrow_changed | bool }}
+            value_template: "{{ trigger.to_state.attributes.get('schedule_changed') }}"
         sequence:
           - variables:
               notification:
                 message: 🔌 The outage schedule has changed!
-  - choose:
       - conditions:
           - condition: template
-            value_template: "{{ tomorrow_available | bool }}"
+            value_template: "{{ trigger.to_state.attributes.get('tomorrow_became_available') }}"
         sequence:
           - variables:
               notification:
@@ -291,13 +271,12 @@ actions:
   - alias: Notify
     if:
       - condition: template
-        value_template: '{{ notification is defined }}'
+        value_template: "{{ notification is defined }}"
     then:
       - action: notify.notify_all
         data:
-          message: '{{ notification.message }}'
+          message: "{{ notification.message }}"
       - action: telegram_bot.send_message
-        metadata: {}
         data:
           message: |-
             {{ notification.message }}
@@ -315,8 +294,8 @@ missing, `unknown`, or `unavailable` current sensor value; an initial update
 without a previous decree attribute is ignored.
 
 ```yaml
-alias: e9y API - NERC decree notifications
 mode: queued
+alias: e9y API - NERC decree notifications
 trigger:
   - platform: state
     entity_id: sensor.electricity_export_rate
@@ -324,14 +303,12 @@ condition:
   - condition: template
     value_template: >-
       {{ trigger.from_state is not none
+         and trigger.to_state is not none
          and has_value(trigger.entity_id)
-         and trigger.from_state.attributes.decree is mapping
-         and trigger.to_state.attributes.decree is mapping
-         and trigger.from_state.attributes.decree
-             != trigger.to_state.attributes.decree }}
-variables:
-  decree: "{{ trigger.to_state.attributes.decree }}"
+         and trigger.from_state.attributes.decree.id != trigger.to_state.attributes.decree.id }}
 action:
+  - variables:
+      decree: "{{ trigger.to_state.attributes.decree }}"
   - action: notify.notify_all # Replace per HA instance.
     data:
       title: ⚡️ Export price changed!
@@ -514,7 +491,6 @@ actions:
       - variables:
           output: WTF?
   - action: telegram_bot.send_message
-    metadata: {}
     data:
       ## Replace with your Telegram Bot config entry.
       config_entry_id: 01KE01C6X423DYR165PHVBD5VB
@@ -531,11 +507,12 @@ DTEK_CACHE_TTL_SECONDS=180
 NERC_CACHE_TTL_SECONDS=86400
 ```
 
-DTEK results are cached per normalized address. NERC has one cache entry for
-the current decree and its complete tariff table, so all commissioning dates
-reuse the same crawl. Concurrent misses share the in-flight crawl. If a refresh
-fails, the last successful value is served with `X-Cache: STALE` when it can
-answer the request.
+DTEK results are cached per normalized address. `previous_fingerprint` is not
+part of that cache key; its comparison is applied after reading the cached schedule.
+NERC has one cache entry for the current decree and its complete tariff table,
+so all commissioning dates reuse the same crawl. Concurrent misses share the
+in-flight crawl. If a refresh fails, the last successful value is served with
+`X-Cache: STALE` when it can answer the request.
 
 ## Native macOS service
 

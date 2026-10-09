@@ -128,6 +128,7 @@ the Kyiv calendar dates represented by `today` and `tomorrow`:
   "tomorrow_became_available": false,
   "group": 1.1,
   "updated_at": "2026-10-07T09:00:00.000Z",
+  "checked_at": "2026-10-07T12:03:00.000Z",
   "events": [
     {
       "start": "2026-10-07T12:00:00.000Z",
@@ -157,7 +158,9 @@ the Kyiv calendar dates represented by `today` and `tomorrow`:
 
 `events` contains the ordered outage intervals used by dashboards and
 automations. `next_outage`, `next_connectivity`, and `shutdown` are `null` when
-no matching transition or current shutdown exists. A missing, invalid, or
+no matching transition or current shutdown exists. `checked_at` is generated
+for every JSON request and is not part of the cached schedule or fingerprint.
+A missing, invalid, or
 unsupported `previous_fingerprint` makes both comparison results `false`; the
 new fingerprint returned by the same response repairs the next request. The ICS
 response remains available as an optional read-only calendar feed.
@@ -208,6 +211,7 @@ rest:
           - group
           - events
           - updated_at
+          - checked_at
           - next_outage
           - next_connectivity
           - today

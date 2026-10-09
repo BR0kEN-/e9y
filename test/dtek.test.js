@@ -79,6 +79,7 @@ test('buildDtekStatus hashes today and tomorrow independently', () => {
   assert.equal(status.tomorrow.date, '2026-03-30')
   assert.equal(status.today.has_outages, true)
   assert.equal(status.tomorrow.has_outages, true)
+  assert.equal(status.checked_at, '2026-03-28T22:15:00.000Z')
   assert.match(status.today.hash, /^[a-f0-9]{64}$/)
   assert.match(status.tomorrow.hash, /^[a-f0-9]{64}$/)
   assert.match(status.fingerprint, /^[A-Za-z0-9_-]+$/)

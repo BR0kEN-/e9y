@@ -245,6 +245,7 @@ export function buildDtekStatus(data, now = new Date(), previousFingerprint = nu
     ...compareDtekFingerprint(days, previousFingerprint),
     group: data.group,
     updated_at: data.schedule.updated_at.toISOString(),
+    checked_at: now.toISOString(),
     events: serializeEvents(data.schedule.events),
     ...transitions,
     today,

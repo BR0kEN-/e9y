@@ -389,18 +389,16 @@ actions:
   - choose:
       - conditions:
           - condition: template
-            value_template: "{{ trigger.to_state.attributes.get('schedule_changed') }}"
-        sequence:
-          - variables:
-              notification:
-                message: 🔌 The outage schedule has changed!
-      - conditions:
-          - condition: template
             value_template: "{{ trigger.to_state.attributes.get('tomorrow_became_available') }}"
         sequence:
           - variables:
-              notification:
-                message: 🔌 Morrow's outage schedule dropped!
+              notification: 🔌 Morrow's schedule dropped!
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.to_state.attributes.get('schedule_changed') }}"
+        sequence:
+          - variables:
+              notification: 🔌 The outage schedule has changed!
   - alias: Notify
     if:
       - condition: template
@@ -408,11 +406,11 @@ actions:
     then:
       - action: notify.notify_all
         data:
-          message: "{{ notification.message }}"
+          message: "{{ notification }}"
       - action: telegram_bot.send_message
         data:
           message: |-
-            {{ notification.message }}
+            {{ notification }}
 
             Check it out in the @NestWatchdogBot
           parse_mode: plain_text
